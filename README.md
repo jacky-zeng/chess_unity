@@ -184,7 +184,7 @@ Assets/
 
 ### 在线模式 (MainOnline)
 
-#### MainOnlineManager.cs — 约 3743 行（项目最大文件）
+#### MainOnlineManager.cs — 约 3750 行（项目最大文件，已通过常量缓存 + 工具方法重构优化）
 
 通过网络连接 `wss://www.zengyanqi.com:9600` 进行在线对战的完整实现，使用 **WebSocketSharp** 库 + **Newtonsoft.Json** 序列化。
 

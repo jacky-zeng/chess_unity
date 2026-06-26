@@ -27,6 +27,9 @@ public class MainOnlineManager : MonoBehaviour
 
     //单例模式
     public static MainOnlineManager _instance;
+
+    //音效侧边数组（用于快速索引 deskSide1-4）
+    private GameObject[] deskSidesArray;
     //public static MainOnlineManager Instance { get { return _instance; } }
 
     [HideInInspector]
@@ -164,7 +167,42 @@ public class MainOnlineManager : MonoBehaviour
 
     #endregion
 
-    #region 对象池辅助方法
+    #region 缓存常量（避免反复 Convert.ToInt32 / enum 装箱拆箱）
+    private static readonly int TAG_NORMAL = Convert.ToInt32(TagType.Normal);
+    private static readonly int TAG_CHI = Convert.ToInt32(TagType.Chi);
+    private static readonly int TAG_PENG = Convert.ToInt32(TagType.Peng);
+    private static readonly int TAG_GANG = Convert.ToInt32(TagType.Gang);
+    private static readonly int TAG_AN_GANG = Convert.ToInt32(TagType.AnGang);
+    private static readonly int USER_NORMAL = Convert.ToInt32(UserType.Normal);
+    private static readonly int USER_USER = Convert.ToInt32(UserType.User);
+    private static readonly int USER_OUT = Convert.ToInt32(UserType.Out);
+    private static readonly int HU_YES = Convert.ToInt32(Hu.Yes);
+    private static readonly int CARD_TYPE_TONG = Convert.ToInt32(CardType.Tong);
+    private static readonly int CARD_TYPE_TIAO = Convert.ToInt32(CardType.Tiao);
+    private static readonly int CARD_TYPE_WAN = Convert.ToInt32(CardType.Wan);
+    private static readonly int CARD_TYPE_FENG = Convert.ToInt32(CardType.Feng);
+    private static readonly int CARD_TYPE_ZI = Convert.ToInt32(CardType.Zi);
+    private static readonly int MSG_AN_GANG = Convert.ToInt32(MessageType.AnGang);
+    private static readonly int MSG_GANG = Convert.ToInt32(MessageType.Gang);
+    private static readonly int MSG_PENG = Convert.ToInt32(MessageType.Peng);
+    private static readonly int MSG_CHI = Convert.ToInt32(MessageType.Chi);
+    private static readonly int MSG_USER_GRAB = Convert.ToInt32(MessageType.UserGrab);
+    private static readonly int MSG_USER_KNOCK = Convert.ToInt32(MessageType.UserKnock);
+    private static readonly int MSG_OPERATE = Convert.ToInt32(MessageType.Operate);
+    private static readonly int MSG_PASS = Convert.ToInt32(MessageType.Pass);
+    private static readonly int MSG_START = Convert.ToInt32(MessageType.Start);
+    private static readonly int MSG_END = Convert.ToInt32(MessageType.End);
+    private static readonly int MSG_PREPARE = Convert.ToInt32(MessageType.Prepare);
+    private static readonly int MSG_CONNECT = Convert.ToInt32(MessageType.Connect);
+    private static readonly int MSG_NEXT = Convert.ToInt32(MessageType.Next);
+    private static readonly int MSG_FAIL = Convert.ToInt32(MessageType.Fail);
+    private static readonly int SIDE_EAST = Convert.ToInt32(OnlineSide.East);
+    private static readonly int SIDE_SOUTH = Convert.ToInt32(OnlineSide.Sorth);
+    private static readonly int SIDE_WEST = Convert.ToInt32(OnlineSide.West);
+    private static readonly int SIDE_NORTH = Convert.ToInt32(OnlineSide.North);
+    #endregion
+
+    #region 工具方法
     //创建牌（从对象池获取，避免 Instantiate）
     private GameObject CreateTile(GameObject prefab, Vector3 position, Quaternion rotation, Transform parent)
     {
@@ -175,6 +213,94 @@ public class MainOnlineManager : MonoBehaviour
     {
         if (tile != null)
             ObjectPool.Instance.Push(tile);
+    }
+
+    /// <summary>归一化牌桌方位：(side + gapDiceSide) 映射到 1-4</summary>
+    private int GetDeskSide(int side)
+    {
+        int raw = side + gapDiceSide;
+        return raw > 4 ? raw % 4 : raw;
+    }
+
+    /// <summary>逆归一化：将牌桌方位还原为代码方位</summary>
+    private int FromDeskSide(int deskSide)
+    {
+        return deskSide > gapDiceSide ? (deskSide - gapDiceSide) : (4 + deskSide - gapDiceSide);
+    }
+
+    /// <summary>获取精灵图 key："Number|CardType"</summary>
+    private string GetSpriteKey(Card card)
+    {
+        return card.Number + "|" + card.CardType;
+    }
+
+    /// <summary>获取精灵图 key（重载）</summary>
+    private string GetSpriteKey(int number, int cardType)
+    {
+        return number + "|" + cardType;
+    }
+
+    /// <summary>从手牌字典中提取普通（未吃碰杠）的 Card 数组</summary>
+    private Card[] GetNormalCards(Dictionary<int, GameObject> source)
+    {
+        Card[] cards = new Card[14];
+        int i = 0;
+        foreach (var kvp in source)
+        {
+            if (dictWhole[kvp.Key].TagType == TAG_NORMAL)
+            {
+                cards[i] = dictWhole[kvp.Key];
+                ++i;
+            }
+        }
+        return cards;
+    }
+
+    /// <summary>从手牌字典中提取普通（未吃碰杠）的 Card 到现有数组</summary>
+    private int FillNormalCards(Dictionary<int, GameObject> source, Card[] cards)
+    {
+        int i = 0;
+        foreach (var kvp in source)
+        {
+            if (dictWhole[kvp.Key].TagType == TAG_NORMAL)
+            {
+                cards[i] = dictWhole[kvp.Key];
+                ++i;
+            }
+        }
+        return i;
+    }
+
+    /// <summary>销毁 Transform 下所有带 PoolTag 的子对象</summary>
+    private void DestroyAllChildren(Transform parent)
+    {
+        for (int i = parent.childCount - 1; i >= 0; i--)
+            DestroyTile(parent.GetChild(i).gameObject);
+    }
+
+    /// <summary>销毁 Transform 下所有子对象（保留 template 命名的）</summary>
+    private void DestroyChildrenExceptTemplate(Transform parent)
+    {
+        for (int i = parent.childCount - 1; i >= 0; i--)
+        {
+            var child = parent.GetChild(i);
+            if (child.gameObject.name != "template")
+                DestroyTile(child.gameObject);
+        }
+    }
+
+    //设置精灵和背景（用于 endByWs 结算面板）
+    private void SetEndCardImage(Transform cardTransform, Card card, bool isWin, bool isActiveWin)
+    {
+        cardTransform.Find("mj").GetComponent<Image>().sprite = dictSingle[GetSpriteKey(card)];
+        if (isWin)
+        {
+            cardTransform.Find("mjBg").GetComponent<Image>().sprite = card.hu == HU_YES ? spHuMjBg : spWinMjBg;
+        }
+        if (card.TagType == TAG_AN_GANG)
+            cardTransform.Find("mjBg").GetComponent<Image>().sprite = spAngangMjBg;
+        else if (card.TagType == TAG_GANG)
+            cardTransform.Find("mjBg").GetComponent<Image>().sprite = spGangMjBg;
     }
     #endregion
 
@@ -243,6 +369,8 @@ public class MainOnlineManager : MonoBehaviour
         FitCamera(CameraNoTaa/*Camera.main*/);
 
         _instance = this;
+
+        deskSidesArray = new GameObject[] { null, deskSide1, deskSide2, deskSide3, deskSide4 };
 
         groupNum = PlayerPrefs.GetString(PlayerPrefsKey.GroupNum.ToString());
         deviceUniqueId = PlayerPrefs.GetString(PlayerPrefsKey.DeviceUniqueId.ToString());
@@ -314,31 +442,9 @@ public class MainOnlineManager : MonoBehaviour
 
         isHomeOwner = type == 1 ? true : false;
 
-        //ws = new WebSocket("ws://local.chat.com:9600?device_unique_id=" + deviceUniqueId + (type == 1 ? "&group_num=" : "&join_group_num=") + groupNum);
-
-        //string strTip = PlayerPrefs.GetString(PlayerPrefsKey.Tip.ToString(), "");
-        //PlayerPrefs.SetString(PlayerPrefsKey.Tip.ToString(), strTip + "|Start() begin");
-
-        //不带证书的连接
-        //ws = new WebSocket("ws://chat.zengyanqi.com:9601?device_unique_id=" + deviceUniqueId + (type == 1 ? "&group_num=" : "&join_group_num=") + groupNum);
-
-        //*带证书的连接
+        //带证书的连接
         ws = new WebSocket("wss://www.zengyanqi.com:9600?device_unique_id=" + deviceUniqueId + (type == 1 ? "&group_num=" : "&join_group_num=") + groupNum);
         ws.SslConfiguration.EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12;
-        //*/
-
-        //strTip = PlayerPrefs.GetString(PlayerPrefsKey.Tip.ToString(), "");
-        //PlayerPrefs.SetString(PlayerPrefsKey.Tip.ToString(), strTip + "|Start() end");
-
-        //// 配置SSL证书验证回调函数
-        //ws.SslConfiguration.ServerCertificateValidationCallback += (sender, certificate, chain, sslPolicyErrors) =>
-        //{
-        //    // 在这里可以对服务器返回的SSL证书进行验证，例如检查证书的合法性、有效期等
-        //    return true; // 返回true表示验证通过，连接继续进行；返回false表示验证不通过，连接终止。
-        //};
-
-        //strTip = PlayerPrefs.GetString(PlayerPrefsKey.Tip.ToString(), "");
-        //PlayerPrefs.SetString(PlayerPrefsKey.Tip.ToString(), strTip + "|after SslConfiguration");
 
         // 当连接成功建立时的回调函数
         ws.OnOpen += OnOpen;
@@ -377,36 +483,14 @@ public class MainOnlineManager : MonoBehaviour
     #region 头像
     public void avatarStyle()
     {
-        int side1 = (1 + gapDiceSide) > 4 ? (1 + gapDiceSide) % 4 : (1 + gapDiceSide);
-        int side2 = (2 + gapDiceSide) > 4 ? (2 + gapDiceSide) % 4 : (2 + gapDiceSide);
-        int side3 = (3 + gapDiceSide) > 4 ? (3 + gapDiceSide) % 4 : (3 + gapDiceSide);
-        int side4 = (4 + gapDiceSide) > 4 ? (4 + gapDiceSide) % 4 : (4 + gapDiceSide);
-        switch (currentActivityDiceSide)  //当前能看到牌的用户始终是1
+        int[] sides = { GetDeskSide(1), GetDeskSide(2), GetDeskSide(3), GetDeskSide(4) };
+        string[] positions = { "self", "next", "oposite", "prev" };
+
+        for (int i = 0; i < 4; i++)
         {
-            case 1:
-                (canvasMain.transform.Find("self").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_active_" + side1) as Sprite;
-                (canvasMain.transform.Find("next").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side2) as Sprite;
-                (canvasMain.transform.Find("oposite").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side3) as Sprite;
-                (canvasMain.transform.Find("prev").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side4) as Sprite;
-                break;
-            case 2:
-                (canvasMain.transform.Find("self").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side1) as Sprite;
-                (canvasMain.transform.Find("next").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_active_" + side2) as Sprite;
-                (canvasMain.transform.Find("oposite").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side3) as Sprite;
-                (canvasMain.transform.Find("prev").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side4) as Sprite;
-                break;
-            case 3:
-                (canvasMain.transform.Find("self").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side1) as Sprite;
-                (canvasMain.transform.Find("next").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side2) as Sprite;
-                (canvasMain.transform.Find("oposite").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_active_" + side3) as Sprite;
-                (canvasMain.transform.Find("prev").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side4) as Sprite;
-                break;
-            case 4:
-                (canvasMain.transform.Find("self").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side1) as Sprite;
-                (canvasMain.transform.Find("next").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side2) as Sprite;
-                (canvasMain.transform.Find("oposite").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + side3) as Sprite;
-                (canvasMain.transform.Find("prev").GetComponent<Image>()).sprite = Resources.Load<Sprite>("Images/avatar/avatar_active_" + side4) as Sprite;
-                break;
+            string suffix = (i + 1 == currentActivityDiceSide) ? "active_" : "";
+            var img = canvasMain.transform.Find(positions[i]).GetComponent<Image>();
+            img.sprite = Resources.Load<Sprite>("Images/avatar/avatar_" + suffix + sides[i]) as Sprite;
         }
     }
     #endregion
@@ -427,13 +511,13 @@ public class MainOnlineManager : MonoBehaviour
         canvasMain.transform.Find("prev").gameObject.SetActive(true);
 
         //玩家永远是代码意义上的东边 !!!   但是玩家头像和声音可以换，方位上加个偏移量 gapDiceSide
-        userDiceSide = Convert.ToInt32(OnlineSide.East);
+        userDiceSide = SIDE_EAST;
 
         gapDiceSide = realUserDiceSide - userDiceSide; //真实方位 与 代码意义上的东边，相差几个方位
 
         foreach (var notOnlineSide in isNotOnlineSides)
         {
-            int realDiceSideRobot = notOnlineSide > gapDiceSide ? (notOnlineSide - gapDiceSide) : (4 + notOnlineSide - gapDiceSide);
+            int realDiceSideRobot = FromDeskSide(notOnlineSide);
             if (realDiceSideRobot == 1)
             {
                 canvasMain.transform.Find("selfRobot").gameObject.SetActive(true);
@@ -492,7 +576,7 @@ public class MainOnlineManager : MonoBehaviour
         //剩余牌的展示
         displayReverseSide();
 
-        if (currentActivityDiceSide == Convert.ToInt32(OnlineSide.East))
+        if (currentActivityDiceSide == SIDE_EAST)
         {
             //当前用户抓牌
             userGrabCard();
@@ -518,35 +602,14 @@ public class MainOnlineManager : MonoBehaviour
     /// <returns></returns>
     private void playResourceAudio(int sideIn, string fileName)
     {
-        int side = (sideIn + gapDiceSide) > 4 ? (sideIn + gapDiceSide) % 4 : (sideIn + gapDiceSide);
+        int side = GetDeskSide(sideIn);
 
         string namePath = "Audios/style" + side + "/" + fileName;
         AudioClip clip = Resources.Load<AudioClip>(namePath);
 
-        if (side == 1)
-        {
-            AudioSource audioSource = deskSide1.GetComponent<AudioSource>();
-            audioSource.clip = clip;
-            audioSource.Play();
-        }
-        else if (side == 2)
-        {
-            AudioSource audioSource = deskSide2.GetComponent<AudioSource>();
-            audioSource.clip = clip;
-            audioSource.Play();
-        }
-        else if (side == 3)
-        {
-            AudioSource audioSource = deskSide3.GetComponent<AudioSource>();
-            audioSource.clip = clip;
-            audioSource.Play();
-        }
-        else if (side == 4)
-        {
-            AudioSource audioSource = deskSide4.GetComponent<AudioSource>();
-            audioSource.clip = clip;
-            audioSource.Play();
-        }
+        AudioSource audioSource = deskSidesArray[side].GetComponent<AudioSource>();
+        audioSource.clip = clip;
+        audioSource.Play();
     }
 
     //生成
@@ -581,7 +644,7 @@ public class MainOnlineManager : MonoBehaviour
     private void end(List<int> winList = null, int dianPaoDeskViewDiceSide = 0, int key = -1)
     {
         print("发送:MessageType.End=====牌局结束=====");
-        wsSend(Convert.ToInt32(MessageType.End), (winList != null ? string.Join(",", winList) : "") + "|" + dianPaoDeskViewDiceSide + "|" + key);
+        wsSend(MSG_END, (winList != null ? string.Join(",", winList) : "") + "|" + dianPaoDeskViewDiceSide + "|" + key);
     }
 
     private void endByWs(List<int> deskWinList, int dianPaoDeskViewDiceSide, int key)
@@ -622,15 +685,15 @@ public class MainOnlineManager : MonoBehaviour
                     if (userDiceSide != winSide)
                     {
                         //牌到了 机器人 手中
-                        dictWhole[key].userType = Convert.ToInt32(UserType.User);
-                        dictWhole[key].hu = Convert.ToInt32(Hu.Yes);
+                        dictWhole[key].userType = USER_USER;
+                        dictWhole[key].hu = HU_YES;
                         robotList[winSide].Add(key, new GameObject("init"));
                     }
                     else
                     {
                         //牌到了 用户 手中
-                        dictWhole[key].userType = Convert.ToInt32(UserType.User);
-                        dictWhole[key].hu = Convert.ToInt32(Hu.Yes);
+                        dictWhole[key].userType = USER_USER;
+                        dictWhole[key].hu = HU_YES;
                         currentUserMj.Add(key, new GameObject("init"));
                     }
                 }
@@ -689,10 +752,10 @@ public class MainOnlineManager : MonoBehaviour
         {
             var dictTemp = dictWhole[currentUserMjItem.Key];
             var imageTemp = Instantiate(sideSelfTransform.Find("template"), sideSelfTransform);
-            (imageTemp.Find("mj").GetComponent<Image>()).sprite = dictSingle[dictTemp.Number.ToString() + "|" + Convert.ToInt32(dictTemp.CardType)];
+            (imageTemp.Find("mj").GetComponent<Image>()).sprite = dictSingle[GetSpriteKey(dictTemp)];
             if (winList != null && winList.Contains(userDiceSide))
             {
-                if (dictTemp.hu == Convert.ToInt32(Hu.Yes))
+                if (dictTemp.hu == HU_YES)
                 {
                     (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spHuMjBg;     //胡牌的背景 
                 }
@@ -702,11 +765,11 @@ public class MainOnlineManager : MonoBehaviour
                 }
                 gameEnd.transform.Find("winSelf").gameObject.SetActive(true);             //显示“赢”字
             }
-            if (dictTemp.TagType == Convert.ToInt32(TagType.AnGang))
+            if (dictTemp.TagType == TAG_AN_GANG)
             {
                 (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spAngangMjBg;     //暗杠牌的背景 
             }
-            else if (dictTemp.TagType == Convert.ToInt32(TagType.Gang))
+            else if (dictTemp.TagType == TAG_GANG)
             {
                 (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spGangMjBg;       //杠牌的背景 
             }
@@ -718,10 +781,10 @@ public class MainOnlineManager : MonoBehaviour
         {
             var dictTemp = dictWhole[robotItem.Key];
             var imageTemp = Instantiate(sideOpositeTransform.Find("template"), sideOpositeTransform);
-            (imageTemp.Find("mj").GetComponent<Image>()).sprite = dictSingle[dictTemp.Number.ToString() + "|" + Convert.ToInt32(dictTemp.CardType)];
+            (imageTemp.Find("mj").GetComponent<Image>()).sprite = dictSingle[GetSpriteKey(dictTemp)];
             if (winList != null && winList.Contains(sideOposite))
             {
-                if (dictTemp.hu == Convert.ToInt32(Hu.Yes))
+                if (dictTemp.hu == HU_YES)
                 {
                     (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spHuMjBg;     //胡牌的背景 
                 }
@@ -731,11 +794,11 @@ public class MainOnlineManager : MonoBehaviour
                 }
                 gameEnd.transform.Find("winOposite").gameObject.SetActive(true);
             }
-            if (dictTemp.TagType == Convert.ToInt32(TagType.AnGang))
+            if (dictTemp.TagType == TAG_AN_GANG)
             {
                 (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spAngangMjBg;     //暗杠牌的背景 
             }
-            else if (dictTemp.TagType == Convert.ToInt32(TagType.Gang))
+            else if (dictTemp.TagType == TAG_GANG)
             {
                 (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spGangMjBg;       //杠牌的背景 
             }
@@ -745,10 +808,10 @@ public class MainOnlineManager : MonoBehaviour
         {
             var dictTemp = dictWhole[robotItem.Key];
             var imageTemp = Instantiate(sidePrevTransform.Find("template"), sidePrevTransform);
-            (imageTemp.Find("mj").GetComponent<Image>()).sprite = dictSingle[dictTemp.Number.ToString() + "|" + Convert.ToInt32(dictTemp.CardType)];
+            (imageTemp.Find("mj").GetComponent<Image>()).sprite = dictSingle[GetSpriteKey(dictTemp)];
             if (winList != null && winList.Contains(sidePrev))
             {
-                if (dictTemp.hu == Convert.ToInt32(Hu.Yes))
+                if (dictTemp.hu == HU_YES)
                 {
                     (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spHuMjBg;     //胡牌的背景 
                 }
@@ -758,11 +821,11 @@ public class MainOnlineManager : MonoBehaviour
                 }
                 gameEnd.transform.Find("winPrev").gameObject.SetActive(true);
             }
-            if (dictTemp.TagType == Convert.ToInt32(TagType.AnGang))
+            if (dictTemp.TagType == TAG_AN_GANG)
             {
                 (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spAngangMjBg;     //暗杠牌的背景 
             }
-            else if (dictTemp.TagType == Convert.ToInt32(TagType.Gang))
+            else if (dictTemp.TagType == TAG_GANG)
             {
                 (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spGangMjBg;       //杠牌的背景 
             }
@@ -772,10 +835,10 @@ public class MainOnlineManager : MonoBehaviour
         {
             var dictTemp = dictWhole[robotItem.Key];
             var imageTemp = Instantiate(sideNextTransform.Find("template"), sideNextTransform);
-            (imageTemp.Find("mj").GetComponent<Image>()).sprite = dictSingle[dictTemp.Number.ToString() + "|" + Convert.ToInt32(dictTemp.CardType)];
+            (imageTemp.Find("mj").GetComponent<Image>()).sprite = dictSingle[GetSpriteKey(dictTemp)];
             if (winList != null && winList.Contains(sideNext))
             {
-                if (dictTemp.hu == Convert.ToInt32(Hu.Yes))
+                if (dictTemp.hu == HU_YES)
                 {
                     (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spHuMjBg;     //胡牌的背景 
                 }
@@ -785,11 +848,11 @@ public class MainOnlineManager : MonoBehaviour
                 }
                 gameEnd.transform.Find("winNext").gameObject.SetActive(true);
             }
-            if (dictTemp.TagType == Convert.ToInt32(TagType.AnGang))
+            if (dictTemp.TagType == TAG_AN_GANG)
             {
                 (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spAngangMjBg;     //暗杠牌的背景 
             }
-            else if (dictTemp.TagType == Convert.ToInt32(TagType.Gang))
+            else if (dictTemp.TagType == TAG_GANG)
             {
                 (imageTemp.Find("mjBg").GetComponent<Image>()).sprite = spGangMjBg;       //杠牌的背景 
             }
@@ -911,7 +974,7 @@ public class MainOnlineManager : MonoBehaviour
                 DestroyTile(currentUserMjItem.Value); //删除用户牌的游戏物体 (因为下面会重新画)
 
                 var tempCurrentUserMj = dictWhole[currentUserMjItem.Key];
-                if (tempCurrentUserMj.TagType != Convert.ToInt32(TagType.Normal))
+                if (tempCurrentUserMj.TagType != TAG_NORMAL)
                 {
                     // key是唯一的， 值使用 牌的大小 + 牌的形态*10 + 牌的类型*100，便于排序
                     userCardDictPublic.Add(currentUserMjItem.Key, tempCurrentUserMj.Number + tempCurrentUserMj.TagType * 10 + tempCurrentUserMj.CardType * 100);
@@ -977,7 +1040,7 @@ public class MainOnlineManager : MonoBehaviour
 
         for (int i = 0; i < userCardInts.Length; i++)
         {
-            dictWhole[userCardInts[i]].UserType = Convert.ToInt32(UserType.User); //在整副牌中标记这个牌是用户的
+            dictWhole[userCardInts[i]].UserType = USER_USER; //在整副牌中标记这个牌是用户的
         }
 
         //log("用户的手牌是：" + string.Join(",", userCardInts) + "长度：" + userCardInts.Length + "spaceIndex=" + spaceIndex + " count=" + currentUserMj.Count());
@@ -1009,9 +1072,9 @@ public class MainOnlineManager : MonoBehaviour
                 gameObjectInit.transform.localPosition = position;  //必须使用localPosition
                 gameObjectInit.name = tempValue.Key.ToString();
                 Card tempCard = dictWhole[tempValue.Key];
-                (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+                (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
 
-                if (tempCard.TagType == Convert.ToInt32(TagType.AnGang))
+                if (tempCard.TagType == TAG_AN_GANG)
                 {
                     if (card.Number != tempCard.Number || card.CardType != tempCard.CardType)  //暗杠的牌发生了变化，往上漂浮
                     {
@@ -1029,7 +1092,7 @@ public class MainOnlineManager : MonoBehaviour
         }
         else  //机器人
         {
-            if (robotDiceSide == Convert.ToInt32(OnlineSide.Sorth))
+            if (robotDiceSide == SIDE_SOUTH)
             {
                 Card card = new Card(-1, -1);
                 Vector3 origin = new Vector3(37.6f, 4.3f, -18.7f);
@@ -1045,9 +1108,9 @@ public class MainOnlineManager : MonoBehaviour
                     gameObjectInit.transform.localScale = scale;
                     gameObjectInit.name = tempValue.Key.ToString();
                     Card tempCard = dictWhole[tempValue.Key];
-                    (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+                    (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
 
-                    if (tempCard.TagType == Convert.ToInt32(TagType.AnGang))
+                    if (tempCard.TagType == TAG_AN_GANG)
                     {
                         if (card.Number != tempCard.Number || card.CardType != tempCard.CardType)  //暗杠的牌发生了变化，往上漂浮
                         {
@@ -1063,7 +1126,7 @@ public class MainOnlineManager : MonoBehaviour
 
                 return spaceIndex;
             }
-            else if (robotDiceSide == Convert.ToInt32(OnlineSide.West))
+            else if (robotDiceSide == SIDE_WEST)
             {
                 Card card = new Card(-1, -1);
                 Vector3 origin = new Vector3(24.8f, 5.5f, 8.6f);
@@ -1079,9 +1142,9 @@ public class MainOnlineManager : MonoBehaviour
                     gameObjectInit.transform.localScale = scale;
                     gameObjectInit.name = tempValue.Key.ToString();
                     Card tempCard = dictWhole[tempValue.Key];
-                    (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+                    (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
 
-                    if (tempCard.TagType == Convert.ToInt32(TagType.AnGang))
+                    if (tempCard.TagType == TAG_AN_GANG)
                     {
                         if (card.Number != tempCard.Number || card.CardType != tempCard.CardType)  //暗杠的牌发生了变化，往上漂浮
                         {
@@ -1097,7 +1160,7 @@ public class MainOnlineManager : MonoBehaviour
 
                 return spaceIndex;
             }
-            else if (robotDiceSide == Convert.ToInt32(OnlineSide.North))
+            else if (robotDiceSide == SIDE_NORTH)
             {
                 Card card = new Card(-1, -1);
                 Vector3 origin = new Vector3(-110.618f, -0.143f, 0.339f);
@@ -1113,9 +1176,9 @@ public class MainOnlineManager : MonoBehaviour
                     gameObjectInit.transform.localScale = scale;
                     gameObjectInit.name = tempValue.Key.ToString();
                     Card tempCard = dictWhole[tempValue.Key];
-                    (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+                    (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
 
-                    if (tempCard.TagType == Convert.ToInt32(TagType.AnGang))
+                    if (tempCard.TagType == TAG_AN_GANG)
                     {
                         if (card.Number != tempCard.Number || card.CardType != tempCard.CardType)  //暗杠的牌发生了变化，往上漂浮
                         {
@@ -1166,7 +1229,7 @@ public class MainOnlineManager : MonoBehaviour
             GameObject gameObjectInit = CreateTile(mjBase, position, Quaternion.Euler(98f, 0, 270f), userParent.transform);
             gameObjectInit.name = tempValue.Key.ToString();
             Card tempCard = dictWhole[tempValue.Key];
-            (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+            (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
             currentUserMj.Add(tempValue.Key, gameObjectInit);
             ++spaceIndex;
         }
@@ -1198,7 +1261,7 @@ public class MainOnlineManager : MonoBehaviour
             gameObjectInit.name = tempValue.Key.ToString();
             gameObjectInit.transform.localScale = scale;
             Card tempCard = dictWhole[tempValue.Key];
-            //(gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+            //(gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
             tempRobot.Add(tempValue.Key, gameObjectInit);
             ++spaceIndex;
         }
@@ -1214,7 +1277,7 @@ public class MainOnlineManager : MonoBehaviour
         scale = new Vector3(200, 300, 400);
         distance = 0;
 
-        if (robotDiceSide == Convert.ToInt32(OnlineSide.Sorth)) //南
+        if (robotDiceSide == SIDE_SOUTH) //南
         {
             origin = new Vector3(40.3781891f, 2.66314507f, -20.5665283f);
             pos = (new Vector3(45.09481f, -10.96289f, -49.04408f) - origin).normalized; //单位法向量
@@ -1222,7 +1285,7 @@ public class MainOnlineManager : MonoBehaviour
             scale = new Vector3(136, 204, 272);
             distance = 4.08f;
         }
-        else if (robotDiceSide == Convert.ToInt32(OnlineSide.North)) //北
+        else if (robotDiceSide == SIDE_NORTH) //北
         {
             origin = new Vector3(-107f, -0.605f, -9.9f);
             pos = (new Vector3(-99.7f, -10.9f, -58.4f) - origin).normalized; //单位法向量
@@ -1230,7 +1293,7 @@ public class MainOnlineManager : MonoBehaviour
             scale = new Vector3(160, 240, 320);
             distance = 4.8f;
         }
-        else if (robotDiceSide == Convert.ToInt32(OnlineSide.West)) //西
+        else if (robotDiceSide == SIDE_WEST) //西
         {
             origin = new Vector3(19.2f, 2.095f, 6.7f);
             pos = (new Vector3(-43f, 2.1f, 6.7f) - origin).normalized; //单位法向量
@@ -1264,7 +1327,7 @@ public class MainOnlineManager : MonoBehaviour
 
         foreach (KeyValuePair<int, Card> dictItem in dictWhole)
         {
-            if (dictItem.Value.UserType == Convert.ToInt32(UserType.Normal)) //在牌库中
+            if (dictItem.Value.UserType == USER_NORMAL) //在牌库中
             {
                 isOdd = spaceIndex % 2 == 0 ? false : true;
 
@@ -1311,7 +1374,7 @@ public class MainOnlineManager : MonoBehaviour
                 gameObjectInit.name = dictItem.Key.ToString();
                 gameObjectInit.transform.localScale = scale;
                 Card tempCard = dictItem.Value;
-                //(gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+                //(gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
 
                 ++spaceIndex;
             }
@@ -1354,7 +1417,7 @@ public class MainOnlineManager : MonoBehaviour
             //获取牌库中的最后一张牌
             foreach (var dictWholeItem in dictWhole)
             {
-                if (dictWholeItem.Value.userType == Convert.ToInt32(UserType.Normal))
+                if (dictWholeItem.Value.userType == USER_NORMAL)
                 {
                     prevKeyGrab = keyGrab;
                     keyGrab = dictWholeItem.Key;
@@ -1379,7 +1442,7 @@ public class MainOnlineManager : MonoBehaviour
             //获取牌库中的第一张牌
             foreach (var dictWholeItem in dictWhole)
             {
-                if (dictWholeItem.Value.userType == Convert.ToInt32(UserType.Normal))
+                if (dictWholeItem.Value.userType == USER_NORMAL)
                 {
                     keyGrab = dictWholeItem.Key;
                     hasKey = true;
@@ -1399,7 +1462,7 @@ public class MainOnlineManager : MonoBehaviour
         int deskViewDiceSide = (currentActivityDiceSide + gapDiceSide) > 4 ? (currentActivityDiceSide + gapDiceSide) % 4 : (currentActivityDiceSide + gapDiceSide);
 
         print("发送:MessageType.UserGrab用户抓牌，当前方位号(注意：能看到牌的用户始终是1)" + currentActivityDiceSide + (isAnGangOrGang ? "杠或暗杠" : "") + "在牌桌上" + getDeskViewSide(deskViewDiceSide) + "牌" + dictWhole[Convert.ToInt32(keyGrab)].ToString());
-        wsSend(Convert.ToInt32(MessageType.UserGrab), deskViewDiceSide + "|" + realUserDiceSide + "|" + keyGrab.ToString() + "|" + (isAnGangOrGang ? "杠或暗杠" : ""));
+        wsSend(MSG_USER_GRAB, deskViewDiceSide + "|" + realUserDiceSide + "|" + keyGrab.ToString() + "|" + (isAnGangOrGang ? "杠或暗杠" : ""));
     }
 
     private void userGrabCardByWs(int keyGrab)
@@ -1415,7 +1478,7 @@ public class MainOnlineManager : MonoBehaviour
         int gangCount = 0;
         foreach (var currentUserMjItem in currentUserMj)
         {
-            if (dictWhole[currentUserMjItem.Key].TagType == Convert.ToInt32(TagType.Gang))
+            if (dictWhole[currentUserMjItem.Key].TagType == TAG_GANG)
             {
                 ++gangCount;
             }
@@ -1424,10 +1487,10 @@ public class MainOnlineManager : MonoBehaviour
         gameObjectInit.transform.localPosition = new Vector3(14.5f + 5 * (gangCount / 4), -29.8f, -63.5f);
         gameObjectInit.name = keyGrab.ToString();
         Card tempCard = dictWhole[keyGrab];
-        (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+        (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
 
         //牌到了用户手中
-        dictWhole[keyGrab].userType = Convert.ToInt32(UserType.User);
+        dictWhole[keyGrab].userType = USER_USER;
         currentUserMj.Add(keyGrab, gameObjectInit);
 
         log("当前用户抓到了" + dictWhole[keyGrab].ToString());
@@ -1449,7 +1512,7 @@ public class MainOnlineManager : MonoBehaviour
 
         foreach (var currentUserItem in currentUserMj)
         {
-            if (dictWhole[currentUserItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+            if (dictWhole[currentUserItem.Key].TagType == TAG_NORMAL)
             {
                 cards[i] = dictWhole[currentUserItem.Key];
                 ++i;
@@ -1486,7 +1549,7 @@ public class MainOnlineManager : MonoBehaviour
 
             foreach (var currentUserItem in currentUserMj)
             {
-                if (dictWhole[currentUserItem.Key].TagType == Convert.ToInt32(TagType.Peng))
+                if (dictWhole[currentUserItem.Key].TagType == TAG_PENG)
                 {
                     cardPengs[j] = dictWhole[currentUserItem.Key];
                     ++j;
@@ -1557,7 +1620,7 @@ public class MainOnlineManager : MonoBehaviour
 
         foreach (var currentUserItem in currentUserMj)
         {
-            if (dictWhole[currentUserItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+            if (dictWhole[currentUserItem.Key].TagType == TAG_NORMAL)
             {
                 cards[i] = dictWhole[currentUserItem.Key];
                 ++i;
@@ -1630,7 +1693,7 @@ public class MainOnlineManager : MonoBehaviour
                             {
                                 if (
                                     itemShun.Value == true
-                                    && dictWhole[item.Key].TagType == Convert.ToInt32(TagType.Normal)
+                                    && dictWhole[item.Key].TagType == TAG_NORMAL
                                     && dictWhole[item.Key].CardType == dictWhole[currentActiveCardIndex].CardType
                                     && dictWhole[item.Key].Number == itemShun.Key
                                     )
@@ -1679,7 +1742,7 @@ public class MainOnlineManager : MonoBehaviour
         int deskViewDiceSide = (currentActivityDiceSide + gapDiceSide) > 4 ? (currentActivityDiceSide + gapDiceSide) % 4 : (currentActivityDiceSide + gapDiceSide);
 
         print("发送:MessageType.UserKnock用户出牌，当前方位号(注意：能看到牌的用户始终是1)" + currentActivityDiceSide + "在牌桌上" + getDeskViewSide(deskViewDiceSide) + "牌" + dictWhole[Convert.ToInt32(keyKnock)].ToString());
-        wsSend(Convert.ToInt32(MessageType.UserKnock), deskViewDiceSide + "|" + realUserDiceSide + "|" + keyKnock);
+        wsSend(MSG_USER_KNOCK, deskViewDiceSide + "|" + realUserDiceSide + "|" + keyKnock);
     }
 
     private void currentUserKnockByWs(int deskViewDiceSide, string keyKnock)
@@ -1706,14 +1769,14 @@ public class MainOnlineManager : MonoBehaviour
         gameObjectInit.transform.localScale = scale;
         gameObjectInit.name = keyKnock;
         Card tempCard = dictWhole[Convert.ToInt32(keyKnock)];
-        (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+        (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
         #endregion
 
         //播放音效
         playResourceAudio(currentActivityDiceSide, tempCard.Number + Enum.GetName(typeof(CardType), tempCard.CardType));
         //StartCoroutine(playAudio(currentActivityDiceSide, tempCard.Number + Enum.GetName(typeof(CardType), tempCard.CardType) + ".wav"));
 
-        dictWhole[Convert.ToInt32(keyKnock)].UserType = Convert.ToInt32(UserType.Out); //标记为已打出
+        dictWhole[Convert.ToInt32(keyKnock)].UserType = USER_OUT; //标记为已打出
 
         currentUserOutMj.Add(Convert.ToInt32(keyKnock), gameObjectInit); //加入到当前已打出牌的字典中
 
@@ -1738,7 +1801,7 @@ public class MainOnlineManager : MonoBehaviour
         int deskViewDiceSide = (currentActivityDiceSide + gapDiceSide) > 4 ? (currentActivityDiceSide + gapDiceSide) % 4 : (currentActivityDiceSide + gapDiceSide);
 
         print("发送:MessageType.Operate告知服务器，活跃牌｜用户直接过 isHomeOwner=" + isHomeOwner);
-        wsSend(Convert.ToInt32(MessageType.Operate), deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard() + "|0");
+        wsSend(MSG_OPERATE, deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard() + "|0");
 
         if (isHomeOwner /*&& isNotOnlineSides.Contains(deskViewDiceSide)*/) //是房主 /*且 当前用户是机器人*/ （由房主代为控制）
         {
@@ -1752,14 +1815,14 @@ public class MainOnlineManager : MonoBehaviour
     {
         int deskViewDiceSide = (userDiceSide + gapDiceSide) > 4 ? (userDiceSide + gapDiceSide) % 4 : (userDiceSide + gapDiceSide);
 
-        if (type == Convert.ToInt32(MessageType.AnGang))
+        if (type == MSG_AN_GANG)
         {
             //初始化
             Card[] cards = { new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1) };
             int i = 0;
             foreach (var currentUserItem in currentUserMj)
             {
-                if (dictWhole[currentUserItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+                if (dictWhole[currentUserItem.Key].TagType == TAG_NORMAL)
                 {
                     cards[i] = dictWhole[currentUserItem.Key];
                     ++i;
@@ -1771,10 +1834,10 @@ public class MainOnlineManager : MonoBehaviour
             if (canAnGangList.Count() >= 1)   //一个暗杠或多个暗杠 随便暗杠一个即可  todo 有时间需要改成用户选择杠哪个
             {
                 print("发送:MessageType.AnGang用户暗杠，方位号(注意：能看到牌的用户始终是1)" + userDiceSide + "在牌桌上" + getDeskViewSide(deskViewDiceSide) + "牌" + canAnGangList.First().ToString());
-                wsSend(Convert.ToInt32(MessageType.AnGang), deskViewDiceSide + "|" + realUserDiceSide);
+                wsSend(MSG_AN_GANG, deskViewDiceSide + "|" + realUserDiceSide);
             }
         }
-        else if (type == Convert.ToInt32(MessageType.Gang)) //公杠
+        else if (type == MSG_GANG) //公杠
         {
             int keyAdd = getCurrentActiveCard();
             if (userDiceSide == currentActivityDiceSide) //自己摸到牌后将已经碰了的牌公杠
@@ -1783,21 +1846,21 @@ public class MainOnlineManager : MonoBehaviour
             }
 
             print("发送:MessageType.Gang用户公杠，方位号(注意：能看到牌的用户始终是1)" + userDiceSide + "在牌桌上" + getDeskViewSide(deskViewDiceSide) + "牌" + dictWhole[keyAdd].ToString());
-            wsSend(Convert.ToInt32(MessageType.Gang), deskViewDiceSide + "|" + realUserDiceSide + "|" + keyAdd);
+            wsSend(MSG_GANG, deskViewDiceSide + "|" + realUserDiceSide + "|" + keyAdd);
         }
-        else if (type == Convert.ToInt32(MessageType.Peng))
+        else if (type == MSG_PENG)
         {
             int keyAdd = getCurrentActiveCard();
 
             print("发送:MessageType.Peng用户碰牌，方位号(注意：能看到牌的用户始终是1)" + userDiceSide + "在牌桌上" + getDeskViewSide(deskViewDiceSide) + "牌" + dictWhole[keyAdd].ToString());
-            wsSend(Convert.ToInt32(MessageType.Peng), deskViewDiceSide + "|" + realUserDiceSide + "|" + keyAdd);
+            wsSend(MSG_PENG, deskViewDiceSide + "|" + realUserDiceSide + "|" + keyAdd);
         }
-        else if (type == Convert.ToInt32(MessageType.Chi))
+        else if (type == MSG_CHI)
         {
             int keyAdd = getCurrentActiveCard();
 
             print("发送:MessageType.Chi用户吃牌，方位号(注意：能看到牌的用户始终是1)" + userDiceSide + "在牌桌上" + getDeskViewSide(deskViewDiceSide) + "牌" + dictWhole[keyAdd].ToString() + "|" + strDictShunItem);
-            wsSend(Convert.ToInt32(MessageType.Chi), deskViewDiceSide + "|" + realUserDiceSide + "|" + keyAdd + "|" + strDictShunItem);
+            wsSend(MSG_CHI, deskViewDiceSide + "|" + realUserDiceSide + "|" + keyAdd + "|" + strDictShunItem);
         }
     }
 
@@ -1805,14 +1868,14 @@ public class MainOnlineManager : MonoBehaviour
     private void userAddCardByWs(int msgType, int keyAdd = 0, /*Dictionary<int, bool>*/string strDictShunItem = null)
     {
         timerBegin(12.8f);
-        if (msgType == Convert.ToInt32(MessageType.AnGang))
+        if (msgType == MSG_AN_GANG)
         {
             //初始化
             Card[] cards = { new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1) };
             int i = 0;
             foreach (var currentUserItem in currentUserMj)
             {
-                if (dictWhole[currentUserItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+                if (dictWhole[currentUserItem.Key].TagType == TAG_NORMAL)
                 {
                     cards[i] = dictWhole[currentUserItem.Key];
                     ++i;
@@ -1830,7 +1893,7 @@ public class MainOnlineManager : MonoBehaviour
                     var cardTemp = dictWhole[currentUserItem.Key];
                     if (cardTemp.Number == canAnGangList.First().Number && cardTemp.CardType == canAnGangList.First().CardType)
                     {
-                        dictWhole[currentUserItem.Key].TagType = Convert.ToInt32(TagType.AnGang); //修改牌的类型为暗杠
+                        dictWhole[currentUserItem.Key].TagType = TAG_AN_GANG; //修改牌的类型为暗杠
                     }
                 }
 
@@ -1841,7 +1904,7 @@ public class MainOnlineManager : MonoBehaviour
                 userGrabCard(true);
             }
         }
-        else if (msgType == Convert.ToInt32(MessageType.Gang))
+        else if (msgType == MSG_GANG)
         {
             //播放音效
             playResourceAudio(userDiceSide, "gang");
@@ -1864,15 +1927,15 @@ public class MainOnlineManager : MonoBehaviour
                     robotOutList[currentActivityDiceSide].Remove(keyAdd);
                     //牌到了用户手中
                     currentUserMj.Add(keyAdd, new GameObject("init"));
-                    dictWhole[keyAdd].userType = Convert.ToInt32(UserType.User);
+                    dictWhole[keyAdd].userType = USER_USER;
                 }
             }
-            dictWhole[keyAdd].TagType = Convert.ToInt32(TagType.Gang); //修改牌的类型为“公杠”
+            dictWhole[keyAdd].TagType = TAG_GANG; //修改牌的类型为“公杠”
             foreach (var item in currentUserMj)
             {
                 if (dictWhole[item.Key].CardType == dictWhole[keyAdd].CardType && dictWhole[item.Key].Number == dictWhole[keyAdd].Number)
                 {
-                    dictWhole[item.Key].TagType = Convert.ToInt32(TagType.Gang); //修改用户手牌牌的类型为“公杠”
+                    dictWhole[item.Key].TagType = TAG_GANG; //修改用户手牌牌的类型为“公杠”
                 }
             }
 
@@ -1884,7 +1947,7 @@ public class MainOnlineManager : MonoBehaviour
             //摸最后一张牌
             userGrabCard(true);
         }
-        else if (msgType == Convert.ToInt32(MessageType.Peng))
+        else if (msgType == MSG_PENG)
         {
             //播放音效
             playResourceAudio(userDiceSide, "peng");
@@ -1898,14 +1961,14 @@ public class MainOnlineManager : MonoBehaviour
             robotOutList[currentActivityDiceSide].Remove(keyAdd);
             //牌到了用户手中
             currentUserMj.Add(keyAdd, new GameObject("init"));
-            dictWhole[keyAdd].userType = Convert.ToInt32(UserType.User);
+            dictWhole[keyAdd].userType = USER_USER;
 
-            dictWhole[keyAdd].TagType = Convert.ToInt32(TagType.Peng); //修改牌的类型为“碰”
+            dictWhole[keyAdd].TagType = TAG_PENG; //修改牌的类型为“碰”
             foreach (var item in currentUserMj)
             {
                 if (dictWhole[item.Key].CardType == dictWhole[keyAdd].CardType && dictWhole[item.Key].Number == dictWhole[keyAdd].Number)
                 {
-                    dictWhole[item.Key].TagType = Convert.ToInt32(TagType.Peng); //修改手牌中碰了的牌的类型为“碰”
+                    dictWhole[item.Key].TagType = TAG_PENG; //修改手牌中碰了的牌的类型为“碰”
                 }
             }
             displayUser(null);
@@ -1913,7 +1976,7 @@ public class MainOnlineManager : MonoBehaviour
             currentActivityDiceSide = userDiceSide;
             avatarStyle();
         }
-        else if (msgType == Convert.ToInt32(MessageType.Chi))
+        else if (msgType == MSG_CHI)
         {
             //播放音效
             playResourceAudio(userDiceSide, "chi");
@@ -1928,9 +1991,9 @@ public class MainOnlineManager : MonoBehaviour
             robotOutList[currentActivityDiceSide].Remove(keyAdd);
             //牌到了用户手中
             currentUserMj.Add(keyAdd, new GameObject("init"));
-            dictWhole[keyAdd].userType = Convert.ToInt32(UserType.User);
+            dictWhole[keyAdd].userType = USER_USER;
 
-            dictWhole[keyAdd].TagType = Convert.ToInt32(TagType.Chi); //修改牌的类型为“吃”
+            dictWhole[keyAdd].TagType = TAG_CHI; //修改牌的类型为“吃”
 
             string[] strDictShunItems = strDictShunItem.Split('%');
 
@@ -1945,11 +2008,11 @@ public class MainOnlineManager : MonoBehaviour
                         && prevNumber != Convert.ToInt32(items[0]) //防止相同大小的牌变成2次吃
                         && dictWhole[item.Key].CardType == dictWhole[keyAdd].CardType
                         && dictWhole[item.Key].Number == Convert.ToInt32(items[0])
-                        && dictWhole[item.Key].TagType == Convert.ToInt32(TagType.Normal) //防止已经被吃的牌被重复利用
+                        && dictWhole[item.Key].TagType == TAG_NORMAL //防止已经被吃的牌被重复利用
                         )
                     {
                         prevNumber = Convert.ToInt32(items[0]);
-                        dictWhole[item.Key].TagType = Convert.ToInt32(TagType.Chi); //修改手牌中碰了的牌的类型为“吃”
+                        dictWhole[item.Key].TagType = TAG_CHI; //修改手牌中碰了的牌的类型为“吃”
                     }
                 }
             }
@@ -1964,7 +2027,7 @@ public class MainOnlineManager : MonoBehaviour
     //模拟机器人暗杠/碰/吃...
     private void currentRobotAddCardByWs(int deskViewDiceSide, int msgType, int keyAdd = 0, /*Dictionary<int, bool>*/string strDictShunItem = null)
     {
-        if (msgType == Convert.ToInt32(MessageType.AnGang))
+        if (msgType == MSG_AN_GANG)
         {
             //初始化
             Card[] cards = { new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1) };
@@ -1972,7 +2035,7 @@ public class MainOnlineManager : MonoBehaviour
             //robotList
             foreach (var currentRobotItem in robotList[currentActivityDiceSide])
             {
-                if (dictWhole[currentRobotItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+                if (dictWhole[currentRobotItem.Key].TagType == TAG_NORMAL)
                 {
                     cards[i] = dictWhole[currentRobotItem.Key];
                     ++i;
@@ -1991,7 +2054,7 @@ public class MainOnlineManager : MonoBehaviour
                     var cardTemp = dictWhole[currentRobotItem.Key];
                     if (cardTemp.Number == canAnGangList.First().Number && cardTemp.CardType == canAnGangList.First().CardType)
                     {
-                        dictWhole[currentRobotItem.Key].TagType = Convert.ToInt32(TagType.AnGang); //修改牌的类型为暗杠
+                        dictWhole[currentRobotItem.Key].TagType = TAG_AN_GANG; //修改牌的类型为暗杠
                     }
                 }
 
@@ -2005,7 +2068,7 @@ public class MainOnlineManager : MonoBehaviour
                 }
             }
         }
-        else if (msgType == Convert.ToInt32(MessageType.Gang))
+        else if (msgType == MSG_GANG)
         {
             //暂存当前出牌方方位
             int side = currentActivityDiceSide;
@@ -2037,7 +2100,7 @@ public class MainOnlineManager : MonoBehaviour
 
                     //牌（别人打出的）到了机器人手中
                     robotList[currentActivityDiceSide].Add(keyAdd, new GameObject("init"));
-                    dictWhole[keyAdd].userType = Convert.ToInt32(UserType.User);
+                    dictWhole[keyAdd].userType = USER_USER;
                 }
             }
             else
@@ -2053,16 +2116,16 @@ public class MainOnlineManager : MonoBehaviour
 
                     //牌（别人打出的）到了机器人手中
                     robotList[currentActivityDiceSide].Add(keyAdd, new GameObject("init"));
-                    dictWhole[keyAdd].userType = Convert.ToInt32(UserType.User);
+                    dictWhole[keyAdd].userType = USER_USER;
                 }
             }
 
-            dictWhole[keyAdd].TagType = Convert.ToInt32(TagType.Gang); //修改牌的类型为“公杠”
+            dictWhole[keyAdd].TagType = TAG_GANG; //修改牌的类型为“公杠”
             foreach (var item in robotList[currentActivityDiceSide])   //手牌中的三个牌（如果是自己摸到的，就是四张牌）也得修改为“公杠”
             {
                 if (dictWhole[item.Key].CardType == dictWhole[keyAdd].CardType && dictWhole[item.Key].Number == dictWhole[keyAdd].Number)
                 {
-                    dictWhole[item.Key].TagType = Convert.ToInt32(TagType.Gang); //修改手牌牌的类型为“公杠”
+                    dictWhole[item.Key].TagType = TAG_GANG; //修改手牌牌的类型为“公杠”
                 }
             }
 
@@ -2075,7 +2138,7 @@ public class MainOnlineManager : MonoBehaviour
                 Invoke("robotGrabCardTrueInvoke", invokeSeconds * 2);
             }
         }
-        else if (msgType == Convert.ToInt32(MessageType.Peng))
+        else if (msgType == MSG_PENG)
         {
             //暂存当前出牌方方位
             int side = currentActivityDiceSide;
@@ -2109,14 +2172,14 @@ public class MainOnlineManager : MonoBehaviour
 
             //牌到了机器人手中
             robotList[currentActivityDiceSide].Add(keyAdd, new GameObject("init"));
-            dictWhole[keyAdd].userType = Convert.ToInt32(UserType.User);
+            dictWhole[keyAdd].userType = USER_USER;
 
-            dictWhole[keyAdd].TagType = Convert.ToInt32(TagType.Peng); //修改牌的类型为“碰”
+            dictWhole[keyAdd].TagType = TAG_PENG; //修改牌的类型为“碰”
             foreach (var item in robotList[currentActivityDiceSide])
             {
                 if (dictWhole[item.Key].CardType == dictWhole[keyAdd].CardType && dictWhole[item.Key].Number == dictWhole[keyAdd].Number)
                 {
-                    dictWhole[item.Key].TagType = Convert.ToInt32(TagType.Peng); //修改手牌中碰了的牌的类型为“碰”
+                    dictWhole[item.Key].TagType = TAG_PENG; //修改手牌中碰了的牌的类型为“碰”
                 }
             }
 
@@ -2128,7 +2191,7 @@ public class MainOnlineManager : MonoBehaviour
                 Invoke("currentRobotKnock", 1f);
             }
         }
-        else if (msgType == Convert.ToInt32(MessageType.Chi))
+        else if (msgType == MSG_CHI)
         {
             //暂存当前出牌方方位
             int side = currentActivityDiceSide;
@@ -2162,9 +2225,9 @@ public class MainOnlineManager : MonoBehaviour
 
             //牌到了机器人手中
             robotList[currentActivityDiceSide].Add(keyAdd, new GameObject("init"));
-            dictWhole[keyAdd].userType = Convert.ToInt32(UserType.User);
+            dictWhole[keyAdd].userType = USER_USER;
 
-            dictWhole[keyAdd].TagType = Convert.ToInt32(TagType.Chi); //修改牌的类型为“吃”
+            dictWhole[keyAdd].TagType = TAG_CHI; //修改牌的类型为“吃”
 
             string[] strDictShunItems = strDictShunItem.Split('%');
 
@@ -2179,11 +2242,11 @@ public class MainOnlineManager : MonoBehaviour
                         && prevNumber != Convert.ToInt32(items[0]) //防止相同大小的牌变成2次吃
                         && dictWhole[item.Key].CardType == dictWhole[keyAdd].CardType
                         && dictWhole[item.Key].Number == Convert.ToInt32(items[0])
-                        && dictWhole[item.Key].TagType == Convert.ToInt32(TagType.Normal) //防止已经被吃的牌被重复利用
+                        && dictWhole[item.Key].TagType == TAG_NORMAL //防止已经被吃的牌被重复利用
                         )
                     {
                         prevNumber = Convert.ToInt32(items[0]);
-                        dictWhole[item.Key].TagType = Convert.ToInt32(TagType.Chi); //修改手牌中碰了的牌的类型为“吃”
+                        dictWhole[item.Key].TagType = TAG_CHI; //修改手牌中碰了的牌的类型为“吃”
                     }
                 }
             }
@@ -2217,14 +2280,14 @@ public class MainOnlineManager : MonoBehaviour
                 if (deskViewDiceSide == robotDeskViewDiceSide)
                 {
                     print("发送:MessageType.Operate告知服务器，当前机器人直接过,当前机器人出的牌");
-                    wsSend(Convert.ToInt32(MessageType.Operate), deskViewDiceSide + "|" + robotDeskViewDiceSide + "|" + getCurrentActiveCard() + "|0");
+                    wsSend(MSG_OPERATE, deskViewDiceSide + "|" + robotDeskViewDiceSide + "|" + getCurrentActiveCard() + "|0");
                     continue;
                 }
                 Card[] cards = { new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1), new Card(-1, -1) };
                 int i = 0;
                 foreach (KeyValuePair<int, GameObject> robotUserMjItem in robotUserMj.Value)
                 {
-                    if (dictWhole[robotUserMjItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+                    if (dictWhole[robotUserMjItem.Key].TagType == TAG_NORMAL)
                     {
                         cards[i] = dictWhole[robotUserMjItem.Key];
                         ++i;
@@ -2238,7 +2301,7 @@ public class MainOnlineManager : MonoBehaviour
                 {
                     returnValue = true;
                     print("发送:MessageType.Operate告知服务器，活跃牌｜机器人可操作");
-                    wsSend(Convert.ToInt32(MessageType.Operate), deskViewDiceSide + "|" + robotDeskViewDiceSide + "|" + getCurrentActiveCard() + "|1");
+                    wsSend(MSG_OPERATE, deskViewDiceSide + "|" + robotDeskViewDiceSide + "|" + getCurrentActiveCard() + "|1");
                     continue;
                 }
 
@@ -2248,14 +2311,14 @@ public class MainOnlineManager : MonoBehaviour
                     {
                         returnValue = true;
                         print("发送:MessageType.Operate告知服务器，活跃牌｜机器人可操作");
-                        wsSend(Convert.ToInt32(MessageType.Operate), deskViewDiceSide + "|" + robotDeskViewDiceSide + "|" + getCurrentActiveCard() + "|1");
+                        wsSend(MSG_OPERATE, deskViewDiceSide + "|" + robotDeskViewDiceSide + "|" + getCurrentActiveCard() + "|1");
                         continue;
                     }
                     else if (Helper.canKan(cards, dictWhole[getCurrentActiveCard()]))
                     {
                         returnValue = true;
                         print("发送:MessageType.Operate告知服务器，活跃牌｜机器人可操作");
-                        wsSend(Convert.ToInt32(MessageType.Operate), deskViewDiceSide + "|" + robotDeskViewDiceSide + "|" + getCurrentActiveCard() + "|1");
+                        wsSend(MSG_OPERATE, deskViewDiceSide + "|" + robotDeskViewDiceSide + "|" + getCurrentActiveCard() + "|1");
                         continue;
                     }
                 }
@@ -2263,7 +2326,7 @@ public class MainOnlineManager : MonoBehaviour
                 if (!returnValue)
                 {
                     print("发送:MessageType.Operate告知服务器，活跃牌｜机器人直接过");
-                    wsSend(Convert.ToInt32(MessageType.Operate), deskViewDiceSide + "|" + robotDeskViewDiceSide + "|" + getCurrentActiveCard() + "|0");
+                    wsSend(MSG_OPERATE, deskViewDiceSide + "|" + robotDeskViewDiceSide + "|" + getCurrentActiveCard() + "|0");
                 }
             }
         }
@@ -2289,7 +2352,7 @@ public class MainOnlineManager : MonoBehaviour
                     int i = 0;
                     foreach (KeyValuePair<int, GameObject> robotUserMjItem in robotUserMj.Value)
                     {
-                        if (dictWhole[robotUserMjItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+                        if (dictWhole[robotUserMjItem.Key].TagType == TAG_NORMAL)
                         {
                             cards[i] = dictWhole[robotUserMjItem.Key];
                             ++i;
@@ -2318,12 +2381,12 @@ public class MainOnlineManager : MonoBehaviour
                         if (Helper.canGang(cards, dictWhole[getCurrentActiveCard()]))
                         {
                             print("发送:MessageType.Gang机器人杠牌，方位号(注意：能看到牌的用户始终是1)" + robotUserMj.Key + "在牌桌上" + getDeskViewSide(deskViewDiceSide) + "牌" + dictWhole[getCurrentActiveCard()].ToString());
-                            wsSend(Convert.ToInt32(MessageType.Gang), deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard());
+                            wsSend(MSG_GANG, deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard());
                         }
                         else if (Helper.canKan(cards, dictWhole[getCurrentActiveCard()]))
                         {
                             print("发送:MessageType.Peng机器人碰牌，方位号(注意：能看到牌的用户始终是1)" + robotUserMj.Key + "在牌桌上" + getDeskViewSide(deskViewDiceSide) + "牌" + dictWhole[getCurrentActiveCard()].ToString());
-                            wsSend(Convert.ToInt32(MessageType.Peng), deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard());
+                            wsSend(MSG_PENG, deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard());
                         }
                     }
                 }
@@ -2341,7 +2404,7 @@ public class MainOnlineManager : MonoBehaviour
                 int i = 0;
                 foreach (KeyValuePair<int, GameObject> robotUserMjItem in robotUserMj.Value)
                 {
-                    if (dictWhole[robotUserMjItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+                    if (dictWhole[robotUserMjItem.Key].TagType == TAG_NORMAL)
                     {
                         cards[i] = dictWhole[robotUserMjItem.Key];
                         ++i;
@@ -2367,7 +2430,7 @@ public class MainOnlineManager : MonoBehaviour
 
             foreach (var currentUserItem in currentUserMj)
             {
-                if (dictWhole[currentUserItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+                if (dictWhole[currentUserItem.Key].TagType == TAG_NORMAL)
                 {
                     cardsUser[j] = dictWhole[currentUserItem.Key];
                     ++j;
@@ -2417,7 +2480,7 @@ public class MainOnlineManager : MonoBehaviour
             //获取牌库中的最后一张牌
             foreach (var dictWholeItem in dictWhole)
             {
-                if (dictWholeItem.Value.userType == Convert.ToInt32(UserType.Normal))
+                if (dictWholeItem.Value.userType == USER_NORMAL)
                 {
                     prevKeyGrab = keyGrab;
                     keyGrab = dictWholeItem.Key;
@@ -2442,7 +2505,7 @@ public class MainOnlineManager : MonoBehaviour
             //获取牌库中的第一张牌
             foreach (var dictWholeItem in dictWhole)
             {
-                if (dictWholeItem.Value.userType == Convert.ToInt32(UserType.Normal))
+                if (dictWholeItem.Value.userType == USER_NORMAL)
                 {
                     keyGrab = dictWholeItem.Key;
                     hasKey = true;
@@ -2461,7 +2524,7 @@ public class MainOnlineManager : MonoBehaviour
 
         int deskViewDiceSide = (currentActivityDiceSide + gapDiceSide) > 4 ? (currentActivityDiceSide + gapDiceSide) % 4 : (currentActivityDiceSide + gapDiceSide);
         print("发送:MessageType.UserGrab机器人抓牌，方位号(注意：能看到牌的用户始终是1)" + currentActivityDiceSide + (isAnGangOrGang ? "杠或暗杠" : "") + "在牌桌上" + getDeskViewSide(deskViewDiceSide) + "牌" + dictWhole[Convert.ToInt32(keyGrab)].ToString());
-        wsSend(Convert.ToInt32(MessageType.UserGrab), deskViewDiceSide + "|" + realUserDiceSide + "|" + keyGrab.ToString() + "|" + (isAnGangOrGang ? 1 : 0));
+        wsSend(MSG_USER_GRAB, deskViewDiceSide + "|" + realUserDiceSide + "|" + keyGrab.ToString() + "|" + (isAnGangOrGang ? 1 : 0));
     }
 
     private void robotGrabCardByWs(int deskViewDiceSide, int keyGrab)
@@ -2476,7 +2539,7 @@ public class MainOnlineManager : MonoBehaviour
 
         GameObject gameObjectInit = null;
         #region 显示到机器人手中
-        if (currentActivityDiceSide == Convert.ToInt32(OnlineSide.Sorth))     //南边
+        if (currentActivityDiceSide == SIDE_SOUTH)     //南边
         {
             gameObjectInit = CreateTile(mjNoScript, new Vector3(48.1f, -20.7f, -69.7f), Quaternion.Euler(115.218f, 168.311f, 536.354f), robotParent.transform);
             gameObjectInit.transform.localPosition = new Vector3(48.1f, -20.7f, -69.7f);
@@ -2484,9 +2547,9 @@ public class MainOnlineManager : MonoBehaviour
             gameObjectInit.name = keyGrab.ToString();
             //Card tempCard = dictWhole[keyGrab];
             // 不给显示什么牌
-            //(gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+            //(gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
         }
-        else if (currentActivityDiceSide == Convert.ToInt32(OnlineSide.West)) //西边
+        else if (currentActivityDiceSide == SIDE_WEST) //西边
         {
             gameObjectInit = CreateTile(mjNoScript, new Vector3(80.5f, 2.1f, 6.7f), Quaternion.Euler(78.166f, 360f, 450f), robotParent.transform);
             gameObjectInit.transform.localPosition = new Vector3(-80.5f, 2.1f, 6.7f);
@@ -2494,9 +2557,9 @@ public class MainOnlineManager : MonoBehaviour
             gameObjectInit.name = keyGrab.ToString();
             //Card tempCard = dictWhole[keyGrab];
             // 不给显示什么牌 
-            //(gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+            //(gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
         }
-        else if (currentActivityDiceSide == Convert.ToInt32(OnlineSide.North)) //北边
+        else if (currentActivityDiceSide == SIDE_NORTH) //北边
         {
             gameObjectInit = CreateTile(mjNoScript, new Vector3(-98.1f, -13.1f, -69.1f), Quaternion.Euler(103.203f, 144.852f, 334.019f), robotParent.transform);
             gameObjectInit.transform.localPosition = new Vector3(-98.1f, -13.1f, -69.1f);
@@ -2504,7 +2567,7 @@ public class MainOnlineManager : MonoBehaviour
             gameObjectInit.name = keyGrab.ToString();
             //Card tempCard = dictWhole[keyGrab];
             // 不给显示什么牌
-            //(gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+            //(gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
         }
         else
         {
@@ -2515,7 +2578,7 @@ public class MainOnlineManager : MonoBehaviour
 
         log("===========");
         //牌到了 用户/机器人 手中
-        dictWhole[keyGrab].userType = Convert.ToInt32(UserType.User);
+        dictWhole[keyGrab].userType = USER_USER;
 
         print("机器人(注意：能看到牌的用户始终是1)" + currentActivityDiceSide);
 
@@ -2541,7 +2604,7 @@ public class MainOnlineManager : MonoBehaviour
 
         foreach (var currentRobotItem in robotList[currentActivityDiceSide])
         {
-            if (dictWhole[currentRobotItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+            if (dictWhole[currentRobotItem.Key].TagType == TAG_NORMAL)
             {
                 cards[i] = dictWhole[currentRobotItem.Key];
                 ++i;
@@ -2573,7 +2636,7 @@ public class MainOnlineManager : MonoBehaviour
             if (anGangKey != -1)
             {
                 int deskViewDiceSide = (currentActivityDiceSide + gapDiceSide) > 4 ? (currentActivityDiceSide + gapDiceSide) % 4 : (currentActivityDiceSide + gapDiceSide);
-                wsSend(Convert.ToInt32(MessageType.AnGang), deskViewDiceSide + "|" + realUserDiceSide);
+                wsSend(MSG_AN_GANG, deskViewDiceSide + "|" + realUserDiceSide);
             }
         }
         //else if(是否有公杠) //机器人的暂时不做
@@ -2607,7 +2670,7 @@ public class MainOnlineManager : MonoBehaviour
             {
                 DestroyTile(currentRobotMjItem.Value); //删除机器人牌的游戏物体 (因为下面会重新画)
 
-                if (dictWhole[currentRobotMjItem.Key].TagType != Convert.ToInt32(TagType.Normal))
+                if (dictWhole[currentRobotMjItem.Key].TagType != TAG_NORMAL)
                 {
                     robotCardIntPublic.Add(currentRobotMjItem.Key);
                 }
@@ -2654,7 +2717,7 @@ public class MainOnlineManager : MonoBehaviour
 
         for (int i = 0; i < robotCardInts.Length; i++)
         {
-            dictWhole[robotCardInts[i]].UserType = Convert.ToInt32(UserType.User); //在整副牌中标记这个牌是 用户/机器人 的
+            dictWhole[robotCardInts[i]].UserType = USER_USER; //在整副牌中标记这个牌是 用户/机器人 的
         }
 
         //log("机器人的手牌是：" + string.Join(",", robotCardInts) + "长度：" + robotCardInts.Length + "spaceIndex=" + spaceIndex + " count=" + robotList[currentActivityDiceSide].Count());
@@ -2671,7 +2734,7 @@ public class MainOnlineManager : MonoBehaviour
         int i = 0;
         foreach (int key in robotList[currentActivityDiceSide].Keys)
         {
-            if (dictWhole[key].TagType == Convert.ToInt32(TagType.Normal))
+            if (dictWhole[key].TagType == TAG_NORMAL)
             {
                 cards[i] = dictWhole[key];
                 ++i;
@@ -2682,7 +2745,7 @@ public class MainOnlineManager : MonoBehaviour
 
         foreach (int key in robotList[currentActivityDiceSide].Keys)
         {
-            if (dictWhole[key].TagType == Convert.ToInt32(TagType.Normal) && dictWhole[key].CardType == knockCard.CardType && dictWhole[key].Number == knockCard.Number)
+            if (dictWhole[key].TagType == TAG_NORMAL && dictWhole[key].CardType == knockCard.CardType && dictWhole[key].Number == knockCard.Number)
             {
                 keyKnock = key.ToString();
             }
@@ -2695,7 +2758,7 @@ public class MainOnlineManager : MonoBehaviour
         if (isHomeOwner && isNotOnlineSides.Contains(deskViewDiceSide))
         {
             print("发送:MessageType.UserKnock机器人出牌，当前方位号(注意：能看到牌的用户始终是1)" + currentActivityDiceSide + "在牌桌上" + getDeskViewSide(deskViewDiceSide) + "牌" + dictWhole[Convert.ToInt32(keyKnock)].ToString());
-            wsSend(Convert.ToInt32(MessageType.UserKnock), deskViewDiceSide + "|" + realUserDiceSide + "|" + keyKnock);
+            wsSend(MSG_USER_KNOCK, deskViewDiceSide + "|" + realUserDiceSide + "|" + keyKnock);
         }
     }
 
@@ -2709,7 +2772,7 @@ public class MainOnlineManager : MonoBehaviour
         #region 平铺显示机器人已打出的牌
         Card tempCard = dictWhole[Convert.ToInt32(keyKnock)];
         GameObject gameObjectInit = null;
-        if (currentActivityDiceSide == Convert.ToInt32(OnlineSide.Sorth))
+        if (currentActivityDiceSide == SIDE_SOUTH)
         {
             Vector3 origin = new Vector3(48.1f, -30.8f, -48f);
             Vector3 position = origin;
@@ -2727,9 +2790,9 @@ public class MainOnlineManager : MonoBehaviour
             gameObjectInit.transform.localPosition = position + CountO * 5.4f * pos + CountR * posR * 7.2f;
             gameObjectInit.transform.localScale = scale;
             gameObjectInit.name = keyKnock;
-            (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+            (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
         }
-        else if (currentActivityDiceSide == Convert.ToInt32(OnlineSide.West))
+        else if (currentActivityDiceSide == SIDE_WEST)
         {
             Vector3 origin = new Vector3(8f, -11.1f, -7.9f);
             Vector3 position = origin;
@@ -2747,9 +2810,9 @@ public class MainOnlineManager : MonoBehaviour
             gameObjectInit.transform.localPosition = position + CountO * 5.4f * pos + CountR * posR * 7.2f;
             gameObjectInit.transform.localScale = scale;
             gameObjectInit.name = keyKnock;
-            (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+            (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
         }
-        else if (currentActivityDiceSide == Convert.ToInt32(OnlineSide.North))
+        else if (currentActivityDiceSide == SIDE_NORTH)
         {
             Vector3 origin = new Vector3(-91.089f, -7.931f, -5.086f);
             Vector3 position = origin;
@@ -2767,7 +2830,7 @@ public class MainOnlineManager : MonoBehaviour
             gameObjectInit.transform.localPosition = position + CountO * 5.4f * pos + CountR * posR * 7.2f;
             gameObjectInit.transform.localScale = scale;
             gameObjectInit.name = keyKnock;
-            (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
+            (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[GetSpriteKey(tempCard)];
         }
         #endregion
 
@@ -2775,7 +2838,7 @@ public class MainOnlineManager : MonoBehaviour
         playResourceAudio(currentActivityDiceSide, tempCard.Number + Enum.GetName(typeof(CardType), tempCard.CardType));
         //StartCoroutine(playAudio(currentActivityDiceSide, tempCard.Number + Enum.GetName(typeof(CardType), tempCard.CardType) + ".wav"));
 
-        dictWhole[Convert.ToInt32(keyKnock)].UserType = Convert.ToInt32(UserType.Out); //标记为已打出
+        dictWhole[Convert.ToInt32(keyKnock)].UserType = USER_OUT; //标记为已打出
 
         print("机器人出牌robotOutList[currentActivityDiceSide].Add(注意：能看到牌的用户始终是1)" + currentActivityDiceSide + "打出" + dictWhole[Convert.ToInt32(keyKnock)].ToString());
         robotOutList[currentActivityDiceSide].Add(Convert.ToInt32(keyKnock), gameObjectInit); //加入到当前机器人已打出牌的字典中
@@ -2809,12 +2872,12 @@ public class MainOnlineManager : MonoBehaviour
         if (currentUserOperate()) //此时 currentActivityDiceSide != userDiceSide
         {
             print("发送:MessageType.Operate告知服务器，活跃牌｜用户可操作 isHomeOwner=" + isHomeOwner);
-            wsSend(Convert.ToInt32(MessageType.Operate), deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard() + "|1");
+            wsSend(MSG_OPERATE, deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard() + "|1");
         }
         else
         {
             print("发送:MessageType.Operate告知服务器，活跃牌｜用户直接过 isHomeOwner=" + isHomeOwner);
-            wsSend(Convert.ToInt32(MessageType.Operate), deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard() + "|0");
+            wsSend(MSG_OPERATE, deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard() + "|0");
         }
 
         if (isHomeOwner) //是房主 （由房主代为控制）
@@ -2865,7 +2928,7 @@ public class MainOnlineManager : MonoBehaviour
             //print(dictItem.Value.name + "---");
             if (currentGameObject.name == dictItem.Value.name)
             {
-                if (dictWhole[dictItem.Key].TagType != Convert.ToInt32(TagType.Normal)) //点击用户未公开的牌，才会弹起
+                if (dictWhole[dictItem.Key].TagType != TAG_NORMAL) //点击用户未公开的牌，才会弹起
                 {
                     return;
                 }
@@ -2921,7 +2984,7 @@ public class MainOnlineManager : MonoBehaviour
                 //int deskViewDiceSideyy = (winRandomDiceSide + gapDiceSide) > 4 ? (winRandomDiceSide + gapDiceSide) % 4 : (winRandomDiceSide + gapDiceSide);
                 //print("=====牌局开始===== xx = " + xx + " deskViewDiceSideyy = " + deskViewDiceSideyy + " gapDiceSide = " + gapDiceSide);
 
-                wsSend(Convert.ToInt32(MessageType.Start), isOnChi + "$" + isOnRobotHu + "$" + winRandomDiceSide);
+                wsSend(MSG_START, isOnChi + "$" + isOnRobotHu + "$" + winRandomDiceSide);
             }
             else
             {
@@ -2935,7 +2998,7 @@ public class MainOnlineManager : MonoBehaviour
 
             //牌局开始
             print("发送:MessageType.Start=====用户准备=====");
-            wsSend(Convert.ToInt32(MessageType.Prepare), "prepare");
+            wsSend(MSG_PREPARE, "prepare");
         }
     }
 
@@ -2952,7 +3015,7 @@ public class MainOnlineManager : MonoBehaviour
         //隐藏选择吃的页面
         hideChiPannel();
 
-        userAddCard(Convert.ToInt32(MessageType.AnGang));
+        userAddCard(MSG_AN_GANG);
     }
 
     //点击“公杠” (两种情况 1:自己摸到牌后将已经碰了的牌公杠  2:手牌有3个，别人出牌点杠)
@@ -2968,7 +3031,7 @@ public class MainOnlineManager : MonoBehaviour
         //隐藏选择吃的页面
         hideChiPannel();
 
-        userAddCard(Convert.ToInt32(MessageType.Gang));
+        userAddCard(MSG_GANG);
     }
 
     //点击“碰”
@@ -2984,7 +3047,7 @@ public class MainOnlineManager : MonoBehaviour
         //隐藏选择吃的页面
         hideChiPannel();
 
-        userAddCard(Convert.ToInt32(MessageType.Peng));
+        userAddCard(MSG_PENG);
     }
 
     //吃
@@ -2995,7 +3058,7 @@ public class MainOnlineManager : MonoBehaviour
         int i = 0;
         foreach (var currentUserItem in currentUserMj)
         {
-            if (dictWhole[currentUserItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+            if (dictWhole[currentUserItem.Key].TagType == TAG_NORMAL)
             {
                 cards[i] = dictWhole[currentUserItem.Key];
                 ++i;
@@ -3014,7 +3077,7 @@ public class MainOnlineManager : MonoBehaviour
                 strDictShunItem += item.Key + "#" + (item.Value ? "1" : "0") + "%";
             }
 
-            userAddCard(Convert.ToInt32(MessageType.Chi), strDictShunItem.TrimEnd('%'));
+            userAddCard(MSG_CHI, strDictShunItem.TrimEnd('%'));
         }
         else
         {
@@ -3078,7 +3141,7 @@ public class MainOnlineManager : MonoBehaviour
             strDictShunItem += item.Key + "#" + (item.Value ? "1" : "0") + "%";
         }
 
-        userAddCard(Convert.ToInt32(MessageType.Chi), strDictShunItem.TrimEnd('%'));
+        userAddCard(MSG_CHI, strDictShunItem.TrimEnd('%'));
     }
 
     //点击“过” 
@@ -3091,7 +3154,7 @@ public class MainOnlineManager : MonoBehaviour
             setBtnActiveFalse();
             int deskViewDiceSide = (userDiceSide + gapDiceSide) > 4 ? (userDiceSide + gapDiceSide) % 4 : (userDiceSide + gapDiceSide);
             print("点击“过”，发送:MessageType.Pass 牌桌上" + deskViewDiceSide);
-            wsSend(Convert.ToInt32(MessageType.Pass), deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard());
+            wsSend(MSG_PASS, deskViewDiceSide + "|" + realUserDiceSide + "|" + getCurrentActiveCard());
         }
         else   //刚好轮到当前用户，点击了“过”之后，保留“胡”这个按钮
         {
@@ -3122,7 +3185,7 @@ public class MainOnlineManager : MonoBehaviour
                     int i = 0;
                     foreach (KeyValuePair<int, GameObject> robotUserMjItem in robotUserMj.Value)
                     {
-                        if (dictWhole[robotUserMjItem.Key].TagType == Convert.ToInt32(TagType.Normal))
+                        if (dictWhole[robotUserMjItem.Key].TagType == TAG_NORMAL)
                         {
                             cards[i] = dictWhole[robotUserMjItem.Key];
                             ++i;
@@ -3170,131 +3233,51 @@ public class MainOnlineManager : MonoBehaviour
     public void btnContinue()
     {
         //清空数据
-        dictWhole.Clear();// = new Dictionary<int, Card>();                           //整副牌
+        dictWhole.Clear();
+        currentUserMj.Clear();
+        currentUserOutMj.Clear();
+        robotList.Clear();
+        robotOutList.Clear();
+        dictShun.Clear();
 
-        currentUserMj.Clear();// = new Dictionary<int, GameObject>();                 //当前用户手上的牌
-
-        currentUserOutMj.Clear();// = new Dictionary<int, GameObject>();              //当前用户打出的牌
-
-        robotList.Clear();// = new Dictionary<int, Dictionary<int, GameObject>>();    //机器人手上的牌
-
-        robotOutList.Clear();// = new Dictionary<int, Dictionary<int, GameObject>>(); //机器人打出的牌
-
-        dictShun.Clear();// = new Dictionary<int, Dictionary<int, bool>>();           //吃牌的顺子
-
-        //隐藏按钮
+        //隐藏按钮和选择吃的页面
         setBtnActiveFalse();
-
-        //隐藏选择吃的页面
         hideChiPannel();
 
-        //清空桌面上的牌
-        Transform transform;
-        for (int i = 0; i < reverseParent.transform.childCount; i++)
-        {
-            transform = reverseParent.transform.GetChild(i);
-            DestroyTile(transform.gameObject);
-        }
-        for (int i = 0; i < userParent.transform.childCount; i++)
-        {
-            transform = userParent.transform.GetChild(i);
-            DestroyTile(transform.gameObject);
-        }
-        for (int i = 0; i < robotParent.transform.childCount; i++)
-        {
-            transform = robotParent.transform.GetChild(i);
-            DestroyTile(transform.gameObject);
-        }
-        for (int i = 0; i < userOutParent.transform.childCount; i++)
-        {
-            transform = userOutParent.transform.GetChild(i);
-            DestroyTile(transform.gameObject);
-        }
-        for (int i = 0; i < robotOutParent.transform.childCount; i++)
-        {
-            transform = robotOutParent.transform.GetChild(i);
-            DestroyTile(transform.gameObject);
-        }
+        //清空桌面上的牌（使用对象池回收）
+        DestroyAllChildren(reverseParent.transform);
+        DestroyAllChildren(userParent.transform);
+        DestroyAllChildren(robotParent.transform);
+        DestroyAllChildren(userOutParent.transform);
+        DestroyAllChildren(robotOutParent.transform);
 
-        //清空结束页面
-        gameEnd.transform.Find("winSelf").gameObject.SetActive(false);
-        gameEnd.transform.Find("winOposite").gameObject.SetActive(false);
-        gameEnd.transform.Find("winPrev").gameObject.SetActive(false);
-        gameEnd.transform.Find("winNext").gameObject.SetActive(false);
+        //清空结束页面的状态文字
+        string[] winLabels = { "winSelf", "winOposite", "winPrev", "winNext" };
+        string[] dianPaoLabels = { "txtDianPaoSelf", "txtDianPaoOposite", "txtDianPaoPrev", "txtDianPaoNext" };
+        foreach (var label in winLabels) gameEnd.transform.Find(label).gameObject.SetActive(false);
+        foreach (var label in dianPaoLabels) gameEnd.transform.Find(label).gameObject.SetActive(false);
 
-        gameEnd.transform.Find("txtDianPaoSelf").gameObject.SetActive(false);
-        gameEnd.transform.Find("txtDianPaoOposite").gameObject.SetActive(false);
-        gameEnd.transform.Find("txtDianPaoPrev").gameObject.SetActive(false);
-        gameEnd.transform.Find("txtDianPaoNext").gameObject.SetActive(false);
-
-        var sideSelfTransform = gameEnd.transform.Find("sideSelf");
-        var sideOpositeTransform = gameEnd.transform.Find("sideOposite");
-        var sidePrevTransform = gameEnd.transform.Find("sidePrev");
-        var sideNextTransform = gameEnd.transform.Find("sideNext");
-
-        for (int i = 0; i < sideSelfTransform.transform.childCount; i++)
-        {
-            if (sideSelfTransform.transform.GetChild(i).gameObject.name != "template")
-            {
-                transform = sideSelfTransform.transform.GetChild(i);
-                DestroyTile(transform.gameObject);
-            }
-        }
-        for (int i = 0; i < sideOpositeTransform.transform.childCount; i++)
-        {
-            if (sideOpositeTransform.transform.GetChild(i).gameObject.name != "template")
-            {
-                transform = sideOpositeTransform.transform.GetChild(i);
-                DestroyTile(transform.gameObject);
-            }
-        }
-        for (int i = 0; i < sidePrevTransform.transform.childCount; i++)
-        {
-            if (sidePrevTransform.transform.GetChild(i).gameObject.name != "template")
-            {
-                transform = sidePrevTransform.transform.GetChild(i);
-                DestroyTile(transform.gameObject);
-            }
-        }
-        for (int i = 0; i < sideNextTransform.transform.childCount; i++)
-        {
-            if (sideNextTransform.transform.GetChild(i).gameObject.name != "template")
-            {
-                transform = sideNextTransform.transform.GetChild(i);
-                DestroyTile(transform.gameObject);
-            }
-        }
+        //清空结束页面的牌（保留 template 预制体）
+        DestroyChildrenExceptTemplate(gameEnd.transform.Find("sideSelf"));
+        DestroyChildrenExceptTemplate(gameEnd.transform.Find("sideOposite"));
+        DestroyChildrenExceptTemplate(gameEnd.transform.Find("sidePrev"));
+        DestroyChildrenExceptTemplate(gameEnd.transform.Find("sideNext"));
 
         gameEnd.SetActive(false);
-
         canvasAlert.SetActive(false);
         canvasPrepare.SetActive(true);
 
         //桌面头像重置
-        canvasMain.transform.Find("self").gameObject.SetActive(false);
-        canvasMain.transform.Find("next").gameObject.SetActive(false);
-        canvasMain.transform.Find("oposite").gameObject.SetActive(false);
-        canvasMain.transform.Find("prev").gameObject.SetActive(false);
-
-        canvasMain.transform.Find("selfRobot").gameObject.SetActive(false);
-        canvasMain.transform.Find("nextRobot").gameObject.SetActive(false);
-        canvasMain.transform.Find("opositeRobot").gameObject.SetActive(false);
-        canvasMain.transform.Find("prevRobot").gameObject.SetActive(false);
+        string[] avatarNames = { "self", "next", "oposite", "prev" };
+        string[] robotNames = { "selfRobot", "nextRobot", "opositeRobot", "prevRobot" };
+        foreach (var name in avatarNames) canvasMain.transform.Find(name).gameObject.SetActive(false);
+        foreach (var name in robotNames) canvasMain.transform.Find(name).gameObject.SetActive(false);
 
         //开始/准备 页面重置
-        if (isHomeOwner)
-        {
-            btnStart.SetActive(true);
-            btnStart.transform.Find("Text").GetComponent<Text>().text = "开始";
-        }
-        else
-        {
-            btnStart.SetActive(true);
-            btnStart.transform.Find("Text").GetComponent<Text>().text = "准备";
-        }
+        btnStart.SetActive(true);
+        btnStart.transform.Find("Text").GetComponent<Text>().text = isHomeOwner ? "开始" : "准备";
 
-        wsSend(Convert.ToInt32(MessageType.Prepare));
-
+        wsSend(MSG_PREPARE);
         Time.timeScale = 1; //游戏开始
     }
 
@@ -3385,18 +3368,6 @@ public class MainOnlineManager : MonoBehaviour
         CanvasGameStartSetting.SetActive(false);
     }
 
-    ////点击“回到首页” 
-    //public void btnHome()
-    //{
-    //    // 关闭连接
-    //    if (ws != null && ws.IsAlive)
-    //    {
-    //        ws.Close();
-    //    }
-
-    //    Time.timeScale = 1; //游戏重新开始
-    //    SceneManager.LoadScene(ScenesSelect.Start.ToString(), LoadSceneMode.Single); //加载场景(回到首页)
-    //}
     #endregion
 
     #region websocket
@@ -3429,12 +3400,12 @@ public class MainOnlineManager : MonoBehaviour
 
         ReceiveMessage msgs = JsonConvert.DeserializeObject<ReceiveMessage>(e.Data);
 
-        if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Fail))
+        if (Convert.ToInt32(msgs.type) == MSG_FAIL)
         {
             string strTip = PlayerPrefs.GetString(PlayerPrefsKey.Tip.ToString(), "");
             PlayerPrefs.SetString(PlayerPrefsKey.Tip.ToString(), strTip + " OnMessage()" + msgs.message);
         }
-        else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Connect))
+        else if (Convert.ToInt32(msgs.type) == MSG_CONNECT)
         {
             string[] strs = msgs.message.Split('|');
             totalClient = Convert.ToInt32(strs[0]);
@@ -3469,7 +3440,7 @@ public class MainOnlineManager : MonoBehaviour
                 }
             });
         }
-        else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Prepare))
+        else if (Convert.ToInt32(msgs.type) == MSG_PREPARE)
         {
             string[] strs = msgs.message.Split('|');
             totalPrepare = Convert.ToInt32(strs[0]);
@@ -3487,7 +3458,7 @@ public class MainOnlineManager : MonoBehaviour
                 }
             });
         }
-        else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.End))
+        else if (Convert.ToInt32(msgs.type) == MSG_END)
         {
             string[] strs = msgs.message.Split('|'); // strs[0] winList ｜ strs[1] dianPaoDeskViewDiceSide ｜ str[2] key
             List<int> winList = strs[0].Length == 0 ? null : strs[0].Split(',').Select(str => int.Parse(str)).ToList();
@@ -3503,7 +3474,7 @@ public class MainOnlineManager : MonoBehaviour
             //将任务添加到主线程任务队列中等待执行
             MainThreadDispatcher.Enqueue(action);
         }
-        else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Start)) //牌局开始
+        else if (Convert.ToInt32(msgs.type) == MSG_START) //牌局开始
         {
             //strs[0] realUserDiceSide ｜ strs[1] currentActivityDiceSide ｜ strs[2] dictUsers ｜ strs[3] dictWhole ｜ strs[4] isOnlineSide | strs[5] isOnChi$isOnRobotHu
 
@@ -3580,7 +3551,7 @@ public class MainOnlineManager : MonoBehaviour
                 beginByWs(Convert.ToInt32(strs[1]), strs[2]);
             });
         }
-        else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.UserGrab)) //用户/机器人 抓牌
+        else if (Convert.ToInt32(msgs.type) == MSG_USER_GRAB) //用户/机器人 抓牌
         {
             string[] strs = msgs.message.Split('|'); //strs[0] deskViewDiceSide ｜ strs[1] realUserDiceSide | strs[2] keyGrab |  strs[3] isAngangOrGang
             print("接收到：用户/机器人 抓牌，抓牌方牌桌方位" + getDeskViewSide(Convert.ToInt32(strs[0])) + " isAngangOrGang=" + strs[3] + "发消息方真实方位" + strs[1] + "牌" + dictWhole[Convert.ToInt32(strs[2])].ToString());
@@ -3599,7 +3570,7 @@ public class MainOnlineManager : MonoBehaviour
                 }
             });
         }
-        else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.UserKnock)) //用户 出牌
+        else if (Convert.ToInt32(msgs.type) == MSG_USER_KNOCK) //用户 出牌
         {
             string[] strs = msgs.message.Split('|');   //strs[0] deskViewDiceSide ｜ strs[1] realUserDiceSide | strs[2] keyKnock
             print("接收到：用户出牌，在牌桌上" + getDeskViewSide(Convert.ToInt32(strs[0])) + "发消息用户真实方位" + strs[1] + "牌" + dictWhole[Convert.ToInt32(strs[2])].ToString());
@@ -3616,7 +3587,7 @@ public class MainOnlineManager : MonoBehaviour
                 }
             });
         }
-        else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Operate)) //用户 操作
+        else if (Convert.ToInt32(msgs.type) == MSG_OPERATE) //用户 操作
         {
             string[] strs = msgs.message.Split('|');   //strs[0] deskViewDiceSide ｜ strs[1] realUserDiceSide(当前一直是0)
             print("接收到：用户操作，在牌桌上" + getDeskViewSide(Convert.ToInt32(strs[0])) + "发消息用户真实方位" + strs[1]);
@@ -3634,26 +3605,26 @@ public class MainOnlineManager : MonoBehaviour
                 }
             });
         }
-        else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.AnGang) //用户 暗杠
-            || Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Gang)     //用户 杠
-            || Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Peng)     //用户 碰
-            || Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Chi)      //用户 吃
+        else if (Convert.ToInt32(msgs.type) == MSG_AN_GANG //用户 暗杠
+            || Convert.ToInt32(msgs.type) == MSG_GANG     //用户 杠
+            || Convert.ToInt32(msgs.type) == MSG_PENG     //用户 碰
+            || Convert.ToInt32(msgs.type) == MSG_CHI      //用户 吃
             )
         {
             string strType = "";
-            if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.AnGang))
+            if (Convert.ToInt32(msgs.type) == MSG_AN_GANG)
             {
                 strType = "暗杠";
             }
-            else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Gang))
+            else if (Convert.ToInt32(msgs.type) == MSG_GANG)
             {
                 strType = "杠";
             }
-            else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Peng))
+            else if (Convert.ToInt32(msgs.type) == MSG_PENG)
             {
                 strType = "碰";
             }
-            else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Chi))
+            else if (Convert.ToInt32(msgs.type) == MSG_CHI)
             {
                 strType = "吃";
             }
@@ -3675,7 +3646,7 @@ public class MainOnlineManager : MonoBehaviour
                 }
             });
         }
-        else if (Convert.ToInt32(msgs.type) == Convert.ToInt32(MessageType.Next)) //轮到下一个 （只有房主才会收到）
+        else if (Convert.ToInt32(msgs.type) == MSG_NEXT) //轮到下一个 （只有房主才会收到）
         {
             print("接收到：轮到下一个 （只有房主才会收到）");
 
