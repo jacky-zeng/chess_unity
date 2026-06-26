@@ -7,6 +7,7 @@ using UnityEngine;
 public class PoolTag : MonoBehaviour
 {
     public string prefabName;
+    public Vector3 originalScale; //预制体的默认 localScale，取回时恢复
 }
 
 /// <summary>
@@ -65,6 +66,7 @@ public class ObjectPool
             if (tag == null)
                 tag = obj.AddComponent<PoolTag>();
             tag.prefabName = key;
+            tag.originalScale = obj.transform.localScale;
         }
         else
         {
@@ -74,6 +76,10 @@ public class ObjectPool
         obj.transform.SetParent(parent);
         obj.transform.position = position;
         obj.transform.rotation = rotation;
+        // 恢复预制体原始 scale，防止之前在不同场景修改过 scale 的对象显示异常
+        var pt = obj.GetComponent<PoolTag>();
+        if (pt != null && pt.originalScale != Vector3.zero)
+            obj.transform.localScale = pt.originalScale;
         obj.SetActive(true);
         return obj;
     }
