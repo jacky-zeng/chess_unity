@@ -164,6 +164,20 @@ public class MainOnlineManager : MonoBehaviour
 
     #endregion
 
+    #region 对象池辅助方法
+    //创建牌（从对象池获取，避免 Instantiate）
+    private GameObject CreateTile(GameObject prefab, Vector3 position, Quaternion rotation, Transform parent)
+    {
+        return ObjectPool.Instance.Get(prefab, position, rotation, parent);
+    }
+    //销毁牌（归还到对象池，避免 Destroy）
+    private void DestroyTile(GameObject tile)
+    {
+        if (tile != null)
+            ObjectPool.Instance.Push(tile);
+    }
+    #endregion
+
     #region 屏幕变了定义
     /// <summary>
     /// 开发屏幕的宽
@@ -403,6 +417,9 @@ public class MainOnlineManager : MonoBehaviour
      */
     private void beginByWs(int randomDiceSide, string dictUsers)
     {
+        //清空对象池，防止旧牌局残留对象
+        ObjectPool.Instance.init();
+
         canvasPrepare.SetActive(false);
         canvasMain.transform.Find("self").gameObject.SetActive(true);
         canvasMain.transform.Find("next").gameObject.SetActive(true);
@@ -891,7 +908,7 @@ public class MainOnlineManager : MonoBehaviour
 
             foreach (var currentUserMjItem in currentUserMj)
             {
-                Destroy(currentUserMjItem.Value); //删除用户牌的游戏物体 (因为下面会重新画)
+                DestroyTile(currentUserMjItem.Value); //删除用户牌的游戏物体 (因为下面会重新画)
 
                 var tempCurrentUserMj = dictWhole[currentUserMjItem.Key];
                 if (tempCurrentUserMj.TagType != Convert.ToInt32(TagType.Normal))
@@ -988,7 +1005,7 @@ public class MainOnlineManager : MonoBehaviour
             foreach (KeyValuePair<int, int> tempValue in tempSort)
             {
                 position = origin + spaceIndex * pos * 6.15f; //沿向量移动
-                GameObject gameObjectInit = Instantiate(mjNoScript, position, Quaternion.Euler(177.95f, -1.62f, 271.62f), userParent.transform);
+                GameObject gameObjectInit = CreateTile(mjNoScript, position, Quaternion.Euler(177.95f, -1.62f, 271.62f), userParent.transform);
                 gameObjectInit.transform.localPosition = position;  //必须使用localPosition
                 gameObjectInit.name = tempValue.Key.ToString();
                 Card tempCard = dictWhole[tempValue.Key];
@@ -1023,7 +1040,7 @@ public class MainOnlineManager : MonoBehaviour
                 foreach (KeyValuePair<int, int> tempValue in tempSort)
                 {
                     position = origin + spaceIndex * pos * 4.5f; //沿向量移动
-                    GameObject gameObjectInit = Instantiate(mjNoScript, position, Quaternion.Euler(193.627f, 266.655f, 244.009f), userParent.transform);
+                    GameObject gameObjectInit = CreateTile(mjNoScript, position, Quaternion.Euler(193.627f, 266.655f, 244.009f), userParent.transform);
                     gameObjectInit.transform.localPosition = position;  //必须使用localPosition
                     gameObjectInit.transform.localScale = scale;
                     gameObjectInit.name = tempValue.Key.ToString();
@@ -1057,7 +1074,7 @@ public class MainOnlineManager : MonoBehaviour
                 foreach (KeyValuePair<int, int> tempValue in tempSort)
                 {
                     position = origin + spaceIndex * pos * 7.5f; //沿向量移动
-                    GameObject gameObjectInit = Instantiate(mjNoScript, position, Quaternion.Euler(-25.293f, 0, 90.663f), userParent.transform);
+                    GameObject gameObjectInit = CreateTile(mjNoScript, position, Quaternion.Euler(-25.293f, 0, 90.663f), userParent.transform);
                     gameObjectInit.transform.localPosition = position;  //必须使用localPosition
                     gameObjectInit.transform.localScale = scale;
                     gameObjectInit.name = tempValue.Key.ToString();
@@ -1091,7 +1108,7 @@ public class MainOnlineManager : MonoBehaviour
                 foreach (KeyValuePair<int, int> tempValue in tempSort)
                 {
                     position = origin + spaceIndex * pos * 4.5f; //沿向量移动
-                    GameObject gameObjectInit = Instantiate(mjNoScript, position, Quaternion.Euler(191.86f, 80.352f, 284.829f), userParent.transform);
+                    GameObject gameObjectInit = CreateTile(mjNoScript, position, Quaternion.Euler(191.86f, 80.352f, 284.829f), userParent.transform);
                     gameObjectInit.transform.localPosition = position;  //必须使用localPosition
                     gameObjectInit.transform.localScale = scale;
                     gameObjectInit.name = tempValue.Key.ToString();
@@ -1146,7 +1163,7 @@ public class MainOnlineManager : MonoBehaviour
         {
             position = origin + (spaceIndex - 2) * pos * 6.1f; //沿向量移动
 
-            GameObject gameObjectInit = Instantiate(mjBase, position, Quaternion.Euler(98f, 0, 270f), userParent.transform);
+            GameObject gameObjectInit = CreateTile(mjBase, position, Quaternion.Euler(98f, 0, 270f), userParent.transform);
             gameObjectInit.name = tempValue.Key.ToString();
             Card tempCard = dictWhole[tempValue.Key];
             (gameObjectInit.GetComponentInChildren<SpriteRenderer>()).sprite = dictSingle[tempCard.Number.ToString() + "|" + Convert.ToInt32(tempCard.CardType)];
@@ -1176,7 +1193,7 @@ public class MainOnlineManager : MonoBehaviour
         {
             position = origin + spaceIndex * pos * distance; //沿向量移动
 
-            GameObject gameObjectInit = Instantiate(mjNoScript, position, qr, robotParent.transform);
+            GameObject gameObjectInit = CreateTile(mjNoScript, position, qr, robotParent.transform);
             gameObjectInit.transform.localPosition = position;
             gameObjectInit.name = tempValue.Key.ToString();
             gameObjectInit.transform.localScale = scale;
@@ -1290,7 +1307,7 @@ public class MainOnlineManager : MonoBehaviour
                     scale = new Vector3(160, 240, 320);
                 }
 
-                GameObject gameObjectInit = Instantiate(mjHiddenBase, positionCurrent, qr, reverseParent.transform);
+                GameObject gameObjectInit = CreateTile(mjHiddenBase,positionCurrent, qr, reverseParent.transform);
                 gameObjectInit.name = dictItem.Key.ToString();
                 gameObjectInit.transform.localScale = scale;
                 Card tempCard = dictItem.Value;
@@ -1392,7 +1409,7 @@ public class MainOnlineManager : MonoBehaviour
         avatarStyle();
 
         //删除牌库中的物体显示
-        Destroy(reverseParent.transform.Find(keyGrab.ToString()).gameObject);
+        DestroyTile(reverseParent.transform.Find(keyGrab.ToString()).gameObject);
 
         //显示到用户手中
         int gangCount = 0;
@@ -1403,7 +1420,7 @@ public class MainOnlineManager : MonoBehaviour
                 ++gangCount;
             }
         }
-        GameObject gameObjectInit = Instantiate(mjBase, new Vector3(0, 0, 0), Quaternion.Euler(82f, 180, 90f), userParent.transform);
+        GameObject gameObjectInit = CreateTile(mjBase, new Vector3(0, 0, 0), Quaternion.Euler(82f, 180, 90f), userParent.transform);
         gameObjectInit.transform.localPosition = new Vector3(14.5f + 5 * (gangCount / 4), -29.8f, -63.5f);
         gameObjectInit.name = keyGrab.ToString();
         Card tempCard = dictWhole[keyGrab];
@@ -1684,7 +1701,7 @@ public class MainOnlineManager : MonoBehaviour
         int CountR = Convert.ToInt32(Math.Floor(Convert.ToDouble(count / 15)));
         int CountO = count % 15;
 
-        GameObject gameObjectInit = Instantiate(mjNoScript, new Vector3(0, 0, 0), qr, userOutParent.transform);
+        GameObject gameObjectInit = CreateTile(mjNoScript, new Vector3(0, 0, 0), qr, userOutParent.transform);
         gameObjectInit.transform.localPosition = position + CountO * 5.4f * pos + CountR * posR * 7.2f;
         gameObjectInit.transform.localScale = scale;
         gameObjectInit.name = keyKnock;
@@ -1700,7 +1717,7 @@ public class MainOnlineManager : MonoBehaviour
 
         currentUserOutMj.Add(Convert.ToInt32(keyKnock), gameObjectInit); //加入到当前已打出牌的字典中
 
-        Destroy(currentUserMj[Convert.ToInt32(keyKnock)]); //删除用户牌的游戏物体
+        DestroyTile(currentUserMj[Convert.ToInt32(keyKnock)]); //删除用户牌的游戏物体
         currentUserMj.Remove(Convert.ToInt32(keyKnock));   //从用户牌中移除当前打出的牌
 
         setCurrentActiveCard(Convert.ToInt32(keyKnock));
@@ -1842,7 +1859,7 @@ public class MainOnlineManager : MonoBehaviour
                 if (tempOutCard != null)
                 {
                     //删除打出用户的物体显示
-                    Destroy(tempOutCard.gameObject);
+                    DestroyTile(tempOutCard.gameObject);
                     //删除 robotOutList 中的
                     robotOutList[currentActivityDiceSide].Remove(keyAdd);
                     //牌到了用户手中
@@ -1876,7 +1893,7 @@ public class MainOnlineManager : MonoBehaviour
             //注意 此时 currentActivityDiceSide 是打出牌用户的方位
             print("用户碰了牌桌上" + getDeskViewSide(deskViewDiceSide) + "方的牌：" + dictWhole[keyAdd].ToString());
             //删除打出用户的物体显示
-            Destroy(robotOutParent.transform.Find(keyAdd.ToString()).gameObject);
+            DestroyTile(robotOutParent.transform.Find(keyAdd.ToString()).gameObject);
             //删除 robotOutList 中的
             robotOutList[currentActivityDiceSide].Remove(keyAdd);
             //牌到了用户手中
@@ -1906,7 +1923,7 @@ public class MainOnlineManager : MonoBehaviour
             print("用户吃了牌桌上" + getDeskViewSide(deskViewDiceSide) + "方的牌：" + dictWhole[keyAdd].ToString());
 
             //删除打出用户的物体显示
-            Destroy(robotOutParent.transform.Find(keyAdd.ToString()).gameObject);
+            DestroyTile(robotOutParent.transform.Find(keyAdd.ToString()).gameObject);
             //删除 robotOutList 中的
             robotOutList[currentActivityDiceSide].Remove(keyAdd);
             //牌到了用户手中
@@ -2013,7 +2030,7 @@ public class MainOnlineManager : MonoBehaviour
                 if (tempOutCard != null)
                 {
                     //删除打出用户的物体显示
-                    Destroy(tempOutCard.gameObject);
+                    DestroyTile(tempOutCard.gameObject);
                     //删除 currentUserOutMj 中的
                     print("(currentRobotAddCardByWs) 删除 currentUserOutMj 中的");
                     currentUserOutMj.Remove(keyAdd);
@@ -2029,7 +2046,7 @@ public class MainOnlineManager : MonoBehaviour
                 if (tempOutCard != null)
                 {
                     //删除打出机器人的物体显示
-                    Destroy(tempOutCard.gameObject);
+                    DestroyTile(tempOutCard.gameObject);
                     //删除 robotOutList 中的
                     print("(currentRobotAddCardByWs) 删除 robotOutList 中的");
                     robotOutList[side].Remove(keyAdd);
@@ -2077,7 +2094,7 @@ public class MainOnlineManager : MonoBehaviour
             if (_deskViewDiceSide == currentDeskViewDiceSide)
             {
                 //删除打出 用户 的物体显示
-                Destroy(userOutParent.transform.Find(keyAdd.ToString()).gameObject);
+                DestroyTile(userOutParent.transform.Find(keyAdd.ToString()).gameObject);
 
                 print("删除 currentUserOutMj 中的");
                 currentUserOutMj.Remove(keyAdd);
@@ -2085,7 +2102,7 @@ public class MainOnlineManager : MonoBehaviour
             else
             {
                 //删除打出 机器人 的物体显示
-                Destroy(robotOutParent.transform.Find(keyAdd.ToString()).gameObject);
+                DestroyTile(robotOutParent.transform.Find(keyAdd.ToString()).gameObject);
 
                 robotOutList[side].Remove(keyAdd);
             }
@@ -2130,7 +2147,7 @@ public class MainOnlineManager : MonoBehaviour
             if (_deskViewDiceSide == currentDeskViewDiceSide)
             {
                 //删除打出 用户 的物体显示
-                Destroy(userOutParent.transform.Find(keyAdd.ToString()).gameObject);
+                DestroyTile(userOutParent.transform.Find(keyAdd.ToString()).gameObject);
 
                 print("删除 currentUserOutMj 中的");
                 currentUserOutMj.Remove(keyAdd);
@@ -2138,7 +2155,7 @@ public class MainOnlineManager : MonoBehaviour
             else
             {
                 //删除打出 机器人 的物体显示
-                Destroy(robotOutParent.transform.Find(keyAdd.ToString()).gameObject);
+                DestroyTile(robotOutParent.transform.Find(keyAdd.ToString()).gameObject);
 
                 robotOutList[side].Remove(keyAdd);
             }
@@ -2455,13 +2472,13 @@ public class MainOnlineManager : MonoBehaviour
         currentRobotGrabkey = keyGrab;
 
         //删除牌库中的物体显示
-        Destroy(reverseParent.transform.Find(keyGrab.ToString()).gameObject);
+        DestroyTile(reverseParent.transform.Find(keyGrab.ToString()).gameObject);
 
         GameObject gameObjectInit = null;
         #region 显示到机器人手中
         if (currentActivityDiceSide == Convert.ToInt32(OnlineSide.Sorth))     //南边
         {
-            gameObjectInit = Instantiate(mjNoScript, new Vector3(48.1f, -20.7f, -69.7f), Quaternion.Euler(115.218f, 168.311f, 536.354f), robotParent.transform);
+            gameObjectInit = CreateTile(mjNoScript, new Vector3(48.1f, -20.7f, -69.7f), Quaternion.Euler(115.218f, 168.311f, 536.354f), robotParent.transform);
             gameObjectInit.transform.localPosition = new Vector3(48.1f, -20.7f, -69.7f);
             gameObjectInit.transform.localScale = new Vector3(136, 204, 272);
             gameObjectInit.name = keyGrab.ToString();
@@ -2471,7 +2488,7 @@ public class MainOnlineManager : MonoBehaviour
         }
         else if (currentActivityDiceSide == Convert.ToInt32(OnlineSide.West)) //西边
         {
-            gameObjectInit = Instantiate(mjNoScript, new Vector3(80.5f, 2.1f, 6.7f), Quaternion.Euler(78.166f, 360f, 450f), robotParent.transform);
+            gameObjectInit = CreateTile(mjNoScript, new Vector3(80.5f, 2.1f, 6.7f), Quaternion.Euler(78.166f, 360f, 450f), robotParent.transform);
             gameObjectInit.transform.localPosition = new Vector3(-80.5f, 2.1f, 6.7f);
             gameObjectInit.transform.localScale = new Vector3(260, 390, 520);
             gameObjectInit.name = keyGrab.ToString();
@@ -2481,7 +2498,7 @@ public class MainOnlineManager : MonoBehaviour
         }
         else if (currentActivityDiceSide == Convert.ToInt32(OnlineSide.North)) //北边
         {
-            gameObjectInit = Instantiate(mjNoScript, new Vector3(-98.1f, -13.1f, -69.1f), Quaternion.Euler(103.203f, 144.852f, 334.019f), robotParent.transform);
+            gameObjectInit = CreateTile(mjNoScript, new Vector3(-98.1f, -13.1f, -69.1f), Quaternion.Euler(103.203f, 144.852f, 334.019f), robotParent.transform);
             gameObjectInit.transform.localPosition = new Vector3(-98.1f, -13.1f, -69.1f);
             gameObjectInit.transform.localScale = new Vector3(160, 240, 320);
             gameObjectInit.name = keyGrab.ToString();
@@ -2588,7 +2605,7 @@ public class MainOnlineManager : MonoBehaviour
 
             foreach (var currentRobotMjItem in robotList[side])
             {
-                Destroy(currentRobotMjItem.Value); //删除机器人牌的游戏物体 (因为下面会重新画)
+                DestroyTile(currentRobotMjItem.Value); //删除机器人牌的游戏物体 (因为下面会重新画)
 
                 if (dictWhole[currentRobotMjItem.Key].TagType != Convert.ToInt32(TagType.Normal))
                 {
@@ -2706,7 +2723,7 @@ public class MainOnlineManager : MonoBehaviour
             int CountR = Convert.ToInt32(Math.Floor(Convert.ToDouble(count / 10)));
             int CountO = count % 10;
 
-            gameObjectInit = Instantiate(mjNoScript, new Vector3(0, 0, 0), qr, robotOutParent.transform);
+            gameObjectInit = CreateTile(mjNoScript, new Vector3(0, 0, 0), qr, robotOutParent.transform);
             gameObjectInit.transform.localPosition = position + CountO * 5.4f * pos + CountR * posR * 7.2f;
             gameObjectInit.transform.localScale = scale;
             gameObjectInit.name = keyKnock;
@@ -2726,7 +2743,7 @@ public class MainOnlineManager : MonoBehaviour
             int CountR = Convert.ToInt32(Math.Floor(Convert.ToDouble(count / 14)));
             int CountO = count % 14;
 
-            gameObjectInit = Instantiate(mjNoScript, new Vector3(0, 0, 0), qr, robotOutParent.transform);
+            gameObjectInit = CreateTile(mjNoScript, new Vector3(0, 0, 0), qr, robotOutParent.transform);
             gameObjectInit.transform.localPosition = position + CountO * 5.4f * pos + CountR * posR * 7.2f;
             gameObjectInit.transform.localScale = scale;
             gameObjectInit.name = keyKnock;
@@ -2746,7 +2763,7 @@ public class MainOnlineManager : MonoBehaviour
 
             Vector3 posR = (new Vector3(-83.7f, -8.2f, -6.4f) - origin).normalized; //单位法向量
 
-            gameObjectInit = Instantiate(mjNoScript, new Vector3(0, 0, 0), qr, robotOutParent.transform);
+            gameObjectInit = CreateTile(mjNoScript, new Vector3(0, 0, 0), qr, robotOutParent.transform);
             gameObjectInit.transform.localPosition = position + CountO * 5.4f * pos + CountR * posR * 7.2f;
             gameObjectInit.transform.localScale = scale;
             gameObjectInit.name = keyKnock;
@@ -2763,7 +2780,7 @@ public class MainOnlineManager : MonoBehaviour
         print("机器人出牌robotOutList[currentActivityDiceSide].Add(注意：能看到牌的用户始终是1)" + currentActivityDiceSide + "打出" + dictWhole[Convert.ToInt32(keyKnock)].ToString());
         robotOutList[currentActivityDiceSide].Add(Convert.ToInt32(keyKnock), gameObjectInit); //加入到当前机器人已打出牌的字典中
 
-        Destroy(robotList[currentActivityDiceSide][Convert.ToInt32(keyKnock)]); //删除 用户/机器人 牌的游戏物体
+        DestroyTile(robotList[currentActivityDiceSide][Convert.ToInt32(keyKnock)]); //删除 用户/机器人 牌的游戏物体
         robotList[currentActivityDiceSide].Remove(Convert.ToInt32(keyKnock));   //从用户牌中移除当前打出的牌
 
         setCurrentActiveCard(Convert.ToInt32(keyKnock));
@@ -3176,27 +3193,27 @@ public class MainOnlineManager : MonoBehaviour
         for (int i = 0; i < reverseParent.transform.childCount; i++)
         {
             transform = reverseParent.transform.GetChild(i);
-            Destroy(transform.gameObject);
+            DestroyTile(transform.gameObject);
         }
         for (int i = 0; i < userParent.transform.childCount; i++)
         {
             transform = userParent.transform.GetChild(i);
-            Destroy(transform.gameObject);
+            DestroyTile(transform.gameObject);
         }
         for (int i = 0; i < robotParent.transform.childCount; i++)
         {
             transform = robotParent.transform.GetChild(i);
-            Destroy(transform.gameObject);
+            DestroyTile(transform.gameObject);
         }
         for (int i = 0; i < userOutParent.transform.childCount; i++)
         {
             transform = userOutParent.transform.GetChild(i);
-            Destroy(transform.gameObject);
+            DestroyTile(transform.gameObject);
         }
         for (int i = 0; i < robotOutParent.transform.childCount; i++)
         {
             transform = robotOutParent.transform.GetChild(i);
-            Destroy(transform.gameObject);
+            DestroyTile(transform.gameObject);
         }
 
         //清空结束页面
@@ -3220,7 +3237,7 @@ public class MainOnlineManager : MonoBehaviour
             if (sideSelfTransform.transform.GetChild(i).gameObject.name != "template")
             {
                 transform = sideSelfTransform.transform.GetChild(i);
-                Destroy(transform.gameObject);
+                DestroyTile(transform.gameObject);
             }
         }
         for (int i = 0; i < sideOpositeTransform.transform.childCount; i++)
@@ -3228,7 +3245,7 @@ public class MainOnlineManager : MonoBehaviour
             if (sideOpositeTransform.transform.GetChild(i).gameObject.name != "template")
             {
                 transform = sideOpositeTransform.transform.GetChild(i);
-                Destroy(transform.gameObject);
+                DestroyTile(transform.gameObject);
             }
         }
         for (int i = 0; i < sidePrevTransform.transform.childCount; i++)
@@ -3236,7 +3253,7 @@ public class MainOnlineManager : MonoBehaviour
             if (sidePrevTransform.transform.GetChild(i).gameObject.name != "template")
             {
                 transform = sidePrevTransform.transform.GetChild(i);
-                Destroy(transform.gameObject);
+                DestroyTile(transform.gameObject);
             }
         }
         for (int i = 0; i < sideNextTransform.transform.childCount; i++)
@@ -3244,7 +3261,7 @@ public class MainOnlineManager : MonoBehaviour
             if (sideNextTransform.transform.GetChild(i).gameObject.name != "template")
             {
                 transform = sideNextTransform.transform.GetChild(i);
-                Destroy(transform.gameObject);
+                DestroyTile(transform.gameObject);
             }
         }
 

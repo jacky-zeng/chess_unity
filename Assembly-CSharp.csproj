@@ -72,6 +72,7 @@
     <Compile Include="Assets/Scripts/Common/Helper.cs" />
     <Compile Include="Assets/Scripts/MainOnline/MJOnline.cs" />
     <Compile Include="Assets/Scripts/MainSingle/MainManager.cs" />
+    <Compile Include="Assets/Scripts/ObjectPool.cs" />
     <Compile Include="Assets/Scripts/Common/Common.cs" />
     <Compile Include="Assets/Scripts/Select/SelectMainManager.cs" />
     <Compile Include="Assets/Timer.cs" />
